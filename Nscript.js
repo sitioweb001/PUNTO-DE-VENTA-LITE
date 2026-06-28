@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
 // ERP POS LITE v3.5 — LOGIC FRONTEND (Nscript.js)
 // ═══════════════════════════════════════════════════════════════
-
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwbYNUf0--D2RVqFyaBZHFxQuClX6RBybuhK6kJU9Q02NZyICUIXEnUWIR1x25xMnfMrA/exec";
 let inventarioGlobal = [], carrito = [];
 let searchTimeout = null;
 let html5QrScanner = null;
