@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ERP POS LITE</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <link rel="stylesheet" href="Nestilo.css">
+</head>
+<body id="appBody">
+
+<div id="toastContainer" class="toast-container"></div>
+<button class="mobile-toggle" id="mobileToggle"><i class="fas fa-bars"></i></button>
+
+<!-- LOGIN SCREEN -->
+<div id="loginScreen" style="min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--primary-dark); padding:1rem;">
+  <div class="login-card" id="loginCard" style="background:var(--bg-card); padding:2.5rem; border-radius:16px; width:100%; max-width:360px; text-align:center; box-shadow:0 20px 25px -5px rgba(0,0,0,0.3);">
+    <i class="fas fa-store" style="font-size:3rem; color:var(--primary-color); margin-bottom:1rem;"></i>
+    <h2>ERP POS LITE</h2>
+    <p class="text-muted" style="margin-bottom:1.5rem;">Doble click aquí para auto-rellenar rápido</p>
+    
+    <div class="form-group" style="text-align:left;">
+      <label>Usuario</label>
+      <input type="text" id="login_usuario" placeholder="admin">
+    </div>
+    <div class="form-group" style="text-align:left;">
+      <label>PIN / Contraseña</label>
+      <input type="password" id="login_password" placeholder="••••••">
+    </div>
+    <button class="btn primary-btn" style="width:100%; justify-content:center; margin-top:1.25rem; height:44px;" onclick="handleLogin()">
+      <i class="fas fa-sign-in-alt"></i> Ingresar
+    </button>
+  </div>
+</div>
+
+<!-- MAIN APPLICATION CONTAINER -->
+<div class="dashboard-container hidden" id="mainApp">
+  <!-- SIDEBAR NAVIGATION -->
+  <aside class="sidebar" id="sidebar">
+    <div class="logo"><i class="fas fa-cash-register"></i> POS Unificado</div>
+    <nav class="sidebar-nav">
+      <a href="#" data-section="ventas" class="active"><i class="fas fa-shopping-cart"></i> Ventas (POS)</a>
+      <a href="#" data-section="inventario"><i class="fas fa-boxes"></i> Inventario</a>
+      <a href="#" data-section="productos"><i class="fas fa-plus-circle"></i> Reg. Producto</a>
+      <a href="#" data-section="categorias"><i class="fas fa-tags"></i> Categorías</a>
+      <a href="#" data-section="compras"><i class="fas fa-truck-loading"></i> Compras</a>
+      <a href="#" data-section="reportes"><i class="fas fa-chart-line"></i> Reportes</a>
+      <a href="#" data-section="papelera"><i class="fas fa-trash-restore"></i> Papelera</a>
+      <a href="#" data-section="importador"><i class="fas fa-file-import"></i> Importar</a>
+      <a href="#" data-section="soporte"><i class="fas fa-headset"></i> Soporte</a>
+      <a href="#" data-section="configuracion"><i class="fas fa-cog"></i> Ajustes</a>
+    </nav>
+  </aside>
+
+  <!-- SECTIONS CONTENT MAIN CONTAINER -->
+  <main class="main-content">
+
+    <!-- PUNTO DE VENTA (POS) -->
+    <section id="ventas" class="content-section active">
+      <h2 style="margin-bottom:1.5rem;"><i class="fas fa-cash-register"></i> Punto de Venta</h2>
+      <div class="carrito-container">
+        <div>
+          <div class="form-group">
+            <label>Escanear o Buscar Producto (Suma automática por cámara/código):</label>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="v_query" placeholder="Escribe código de barras o nombre..." autocomplete="off" style="flex:1;">
+              <button class="btn secondary-btn" onclick="activarCamaraEscaneo('v')" style="min-width:48px; padding:0;"><i class="fas fa-camera" style="font-size:1.2rem;"></i></button>
+            </div>
+            <div id="v_sugerencias" style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius); max-height:180px; overflow-y:auto; margin-top:4px;" class="hidden"></div>
+          </div>
+          
+          <div id="scannerContainer" class="hidden" style="margin:1rem 0; padding:10px; background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg);">
+            <div id="interactiveScanner" style="width:100%; max-width:320px; margin:0 auto;"></div>
+            <button class="btn danger-btn" onclick="detenerCamaraEscaneo()" style="width:100%; margin-top:10px; height:34px; font-size:0.8rem;">Apagar Cámara</button>
+          </div>
+        </div>
+
+        <!-- PANEL DE TOTALES Y FACTURACIÓN -->
+        <div class="carrito-panel">
+          <h3 style="margin-bottom:1rem; padding-bottom:0.5rem; border-bottom:1px solid var(--border-color);"><i class="fas fa-list-ol"></i> Carrito de Compra</h3>
+          <div id="carritoItems" style="min-height:160px; max-height:280px; overflow-y:auto; margin-bottom:1rem;">
+            <p class="text-muted text-center" style="margin-top:3rem;">Carrito vacío</p>
+          </div>
+          
+          <div class="pago-caja">
+            <div style="display:flex; justify-content:space-between; font-size:1.4rem; font-weight:800; margin-bottom:12px;">
+              <span>Total a pagar:</span><span id="c_total" data-val="0">$0.00</span>
+            </div>
+            <div class="form-group" style="margin-bottom:8px;">
+              <label style="color:var(--primary-color);">Efectivo Cliente Paga con ($):</label>
+              <input type="number" id="v_pago_con" class="input-calculo" placeholder="0.00" step="0.01">
+            </div>
+            <div class="form-group">
+              <label style="color:var(--danger-color);">Cambio / Vuelto a Devolver:</label>
+              <input type="text" id="v_cambio" class="input-calculo" style="color:var(--danger-color) !important; background:rgba(220,53,69,0.06) !important;" readonly value="$0.00">
+            </div>
+          </div>
+          
+          <button id="btnFinalizarVenta" class="btn primary-btn" style="width:100%; justify-content:center; height:48px; font-size:1.05rem;" onclick="finalizarVenta()">
+            <i class="fas fa-check-circle"></i> Registrar Cobro Exitioso
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- INVENTARIO -->
+    <section id="inventario" class="content-section">
+      <h2><i class="fas fa-cubes"></i> Control de Inventario</h2>
+      <div class="form-grid" style="margin-top:1rem;"><input type="text" id="f_texto" placeholder="🔎 Filtrar por nombre o código de barras..." oninput="filtrarInventario()"></div>
+      <div class="data-table-container">
+        <table class="data-table">
+          <thead><tr><th>Nombre</th><th>Código</th><th>Categoría</th><th>Existencia (Stock)</th><th>P.Compra</th><th>P.Venta</th></tr></thead>
+          <tbody id="inventarioBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- REGISTRAR PRODUCTO -->
+    <section id="productos" class="content-section">
+      <h2><i class="fas fa-box-open"></i> Registrar Nuevo Producto</h2>
+      <div style="background:var(--bg-card); padding:1.5rem; border-radius:var(--radius-lg); border:1px solid var(--border-color); margin-top:1rem;">
+        <form id="productoForm" class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="form-group">
+            <label>Código de Barras:</label>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="p_codigo" required placeholder="Escribe o escanea...">
+              <button type="button" class="btn secondary-btn" onclick="activarCamaraEscaneo('p')" style="padding:0 12px;"><i class="fas fa-camera"></i></button>
+            </div>
+          </div>
+          <div class="form-group"><label>Nombre del Producto:</label><input type="text" id="p_nombre" required></div>
+          <div class="form-group"><label>Categoría:</label><select id="p_categoria" required><option value="">Seleccione...</option></select></div>
+          <div class="form-group"><label>Stock Inicial:</label><input type="number" id="p_stock" required min="0" value="0"></div>
+          <div class="form-group"><label>Precio de Compra ($):</label><input type="number" id="p_precio_compra" required min="0" step="0.01"></div>
+          <div class="form-group"><label>Precio de Venta ($):</label><input type="number" id="p_precio_venta" required min="0" step="0.01"></div>
+          <div class="full-width" style="margin-top:1rem;"><button type="submit" class="btn primary-btn"><i class="fas fa-save"></i> Guardar en Base de Datos</button></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- CATEGORIAS -->
+    <section id="categorias" class="content-section">
+      <h2><i class="fas fa-tags"></i> Categorías</h2>
+      <form id="categoriaForm" class="form-grid" style="margin-top:1rem;"><div class="form-group"><label>Nombre de Categoría:</label><input type="text" id="c_nombre" required placeholder="Ej: Bebidas"></div><button type="submit" class="btn primary-btn" style="align-self:end; height:42px;">Agregar</button></form>
+      <ul id="listaCategorias" style="list-style:none; margin-top:1.5rem;"></ul>
+    </section>
+
+    <!-- COMPRAS -->
+    <section id="compras" class="content-section">
+      <h2><i class="fas fa-truck-loading"></i> Ingresar Mercadería / Compras</h2>
+      <form id="compraForm" class="form-grid" style="margin-top:1rem;">
+        <div class="form-group full-width"><label>Buscar Producto por Código o Nombre:</label><input type="text" id="co_query" autocomplete="off"><div id="co_sugerencias" class="hidden" style="background:var(--bg-card); border:1px solid var(--border-color); margin-top:4px;"></div></div>
+        <input type="hidden" id="co_prod_id">
+        <div class="form-group"><label>Cantidad a Sumar al Stock:</label><input type="number" id="co_cantidad" required min="1"></div>
+        <div class="form-group"><label>Precio Compra Unitario ($):</label><input type="number" id="co_precio" required step="0.01"></div>
+        <div class="full-width"><button type="submit" class="btn primary-btn">Registrar Ingreso de Inventario</button></div>
+      </form>
+    </section>
+
+    <!-- REPORTES -->
+    <section id="reportes" class="content-section">
+      <h2><i class="fas fa-chart-bar"></i> Reportes de Ventas</h2>
+      <div style="display:flex; gap:10px; margin:1rem 0; flex-wrap:wrap;">
+        <button class="btn secondary-btn" onclick="cargarReporte('hoy')">Reporte Diario (Hoy)</button>
+        <button class="btn secondary-btn" onclick="cargarReporte('semana')">Reporte Semanal</button>
+        <button class="btn secondary-btn" onclick="cargarReporte('mes')">Reporte Mensual</button>
+      </div>
+      <div id="resumenReporte"></div>
+      <div class="data-table-container"><table class="data-table"><thead id="repHead"></thead><tbody id="repBody"></tbody></table></div>
+    </section>
+
+    <!-- PAPELERA -->
+    <section id="papelera" class="content-section">
+      <h2><i class="fas fa-trash-restore"></i> Papelera de Productos</h2>
+      <div class="data-table-container" style="margin-top:1rem;">
+        <table class="data-table">
+          <thead><tr><th>Tipo</th><th>Datos</th><th>Fecha Eliminación</th><th>Acción</th></tr></thead>
+          <tbody id="papeleraBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- IMPORTADOR -->
+    <section id="importador" class="content-section">
+      <h2><i class="fas fa-file-import"></i> Importador Masivo</h2>
+      <p class="text-muted" style="margin:0.5rem 0 1rem;">Carga archivos JSON/CSV rápidos para poblar el catálogo de productos.</p>
+      <input type="file" id="imp_file" accept=".csv,.json" class="form-group">
+      <button class="btn primary-btn" onclick="procesarArchivoImportador()">Ejecutar Importación</button>
+    </section>
+
+    <!-- SOPORTE -->
+    <section id="soporte" class="content-section">
+      <h2><i class="fas fa-headset"></i> Soporte Técnico</h2>
+      <form id="soporteForm" class="form-grid" style="margin-top:1rem;">
+        <div class="form-group"><label>Título de la Consulta:</label><input type="text" id="tk_titulo" required></div>
+        <div class="form-group full-width"><label>Descripción del Problema:</label><textarea id="tk_descripcion" rows="4"></textarea></div>
+        <div class="full-width"><button type="submit" class="btn primary-btn">Enviar Ticket</button></div>
+      </form>
+    </section>
+
+    <!-- CONFIGURACION/AJUSTES -->
+    <section id="configuracion" class="content-section">
+      <h2><i class="fas fa-cog"></i> Ajustes del Sistema</h2>
+      <div style="display:flex; gap:12px; margin-top:1.5rem; flex-wrap:wrap;">
+        <button class="btn secondary-btn" onclick="document.body.classList.toggle('dark-mode')"><i class="fas fa-moon"></i> Cambiar Modo Oscuro/Claro</button>
+        <button class="btn danger-btn" onclick="iniciarBaseDeDatosRemota()"><i class="fas fa-server"></i> Conectar / Inicializar Hojas BD</button>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="Nscript.js"></script>
+</body>
+</html>
