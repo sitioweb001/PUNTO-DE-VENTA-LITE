@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -11,6 +12,9 @@
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   
   <style>
     :root {
@@ -29,6 +33,9 @@
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; width: 100%; overscroll-behavior-y: none; }
     body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-body); color: var(--text-main); transition: background 0.3s, color 0.3s; overflow-x: hidden; }
+    /* All table containers scroll internally, never the body */
+    .data-table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .data-table-container::before { content:''; display:none; }
 
     .flash-success { animation: successBlink 0.6s ease-out; }
     @keyframes successBlink { 0% { background-color: rgba(40, 167, 69, 0.45); } 100% { background-color: var(--bg-body); } }
@@ -98,36 +105,152 @@
     .modal-close { background: none; border: none; font-size: 1.35rem; cursor: pointer; color: var(--text-muted); }
 
     .mobile-toggle { display: none; position: fixed; top: 1rem; left: 1rem; z-index: 1001; background: var(--primary-color); color: white; border: none; width: 44px; height: 44px; border-radius: var(--radius); cursor: pointer; align-items: center; justify-content: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-    
+
+    /* ── SIDEBAR OVERLAY (cierra al tocar fuera en móvil) ── */
+    .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 99; }
+    .sidebar-overlay.active { display: block; }
+
+    /* ── SPINNER DE CARGA ── */
+    .spinner-overlay { position: fixed; inset: 0; background: rgba(9,25,51,0.6); z-index: 5000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; }
+    .spinner-ring { width: 52px; height: 52px; border: 4px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: spin 0.75s linear infinite; }
+    .spinner-label { color: white; font-size: 0.9rem; font-weight: 600; letter-spacing: 0.03em; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── BADGE CARRITO ── */
+    .carrito-badge { display: inline-flex; align-items: center; justify-content: center; background: var(--primary-color); color: white; border-radius: 20px; font-size: 0.72rem; font-weight: 700; min-width: 22px; height: 22px; padding: 0 6px; margin-left: 8px; vertical-align: middle; }
+
+    /* ── BOTONES +/- MÁS GRANDES (área táctil 40px) ── */
+    .carrito-qty button { width: 40px; height: 40px; border: 1.5px solid var(--border-color); background: var(--bg-card); color: var(--text-main); border-radius: 8px; cursor: pointer; font-size: 1.1rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; transition: background 0.15s; }
+    .carrito-qty button:hover { background: var(--primary-light); border-color: var(--primary-color); color: var(--primary-color); }
+    .carrito-qty { gap: 10px; }
+
+    /* ── PAGINACIÓN INVENTARIO ── */
+    .paginacion { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--border-color); font-size: 0.85rem; background: var(--bg-card); border-radius: 0 0 var(--radius-lg) var(--radius-lg); flex-wrap: wrap; gap: 8px; }
+    .paginacion-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+    .paginacion-btns button { min-width: 32px; height: 32px; padding: 0 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-main); border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.82rem; transition: background 0.15s; display: inline-flex; align-items: center; justify-content: center; }
+    .paginacion-btns button:hover:not(:disabled) { background: var(--primary-color); color: white; border-color: var(--primary-color); }
+    .paginacion-btns button:disabled { opacity: 0.3; cursor: not-allowed; }
+    .paginacion-btns button.active { background: var(--primary-color); color: white; border-color: var(--primary-color); }
+
     .inv-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
     .inv-card { background: var(--bg-card); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); position: relative;}
 
+    /* ── MOBILE RESPONSIVE OVERHAUL ── */
     @media (max-width: 768px) {
       .sidebar { transform: translateX(-100%); width: 260px; }
       .sidebar.active { transform: translateX(0); }
-      .main-content { margin-left: 0; padding: 1.25rem; padding-top: 4.5rem; }
+      .main-content { margin-left: 0; padding: 1rem; padding-top: 4.5rem; }
       .mobile-toggle { display: flex; }
       .carrito-container { grid-template-columns: 1fr; }
       .toast-container { top: 1rem; right: 1rem; left: 4.5rem; width: auto; }
       .inv-summary { grid-template-columns: 1fr; }
+
+      /* Tables: show key columns only, hide less important ones on small screens */
+      .data-table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: var(--radius); }
+      .data-table { min-width: unset; width: 100%; }
+      /* Inventario: hide precio compra on very small screens */
+      .data-table td:nth-child(5), .data-table th:nth-child(5) { display: none; }
+      /* Stack form grids to 1 col */
+      .form-grid { grid-template-columns: 1fr !important; }
+
+      /* Reporte buttons row */
+      .reporte-btns { flex-direction: column !important; }
+      .reporte-btns .btn-group { width: 100%; }
+      .reporte-btns .btn-group button { flex: 1; font-size: 0.8rem; padding: 8px 10px; }
+
+      /* Carrito panel always full width */
+      .carrito-panel { margin-top: 0.5rem; }
+
+      /* Header section titles smaller */
+      .content-section h2 { font-size: 1.1rem; }
+
+      /* Summary cards */
+      .inv-summary { gap: 0.75rem; }
+      .inv-card { padding: 1rem; }
+
+      /* Modal full width on mobile */
+      .modal-content { max-width: 100% !important; margin: 0 0.5rem; }
+
+      /* Export buttons */
+      .export-btn-group { flex-direction: column !important; width: 100%; }
+      .export-btn-group button { width: 100%; justify-content: center; }
     }
+
+    @media (max-width: 480px) {
+      .main-content { padding: 0.75rem; padding-top: 4.25rem; }
+      /* On very small phones, stack carrito qty controls */
+      .carrito-item { flex-wrap: wrap; gap: 6px; }
+      /* Hide ID column in report table */
+      .rep-table td:first-child, .rep-table th:first-child { display: none; }
+    }
+
+    /* ── REPORT SECTION STYLES ── */
+    .reporte-btns { display: flex; gap: 10px; margin: 1rem 0; flex-wrap: wrap; align-items: flex-start; }
+    .btn-group { display: flex; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border-color); }
+    .btn-group button { border: none; border-radius: 0; border-right: 1px solid var(--border-color); padding: 8px 14px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background 0.2s; }
+    .btn-group button:last-child { border-right: none; }
+    .btn-group.periodo button { background: var(--bg-card); color: var(--text-main); }
+    .btn-group.periodo button:hover, .btn-group.periodo button.active { background: var(--primary-color); color: white; }
+    .btn-group.export button.pdf-btn { background: #dc3545; color: white; }
+    .btn-group.export button.pdf-btn:hover { background: #b02a37; }
+    .btn-group.export button.excel-btn { background: #1d6f42; color: white; }
+    .btn-group.export button.excel-btn:hover { background: #155233; }
+    .reporte-resumen-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+    .resumen-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius); padding: 1rem; text-align: center; }
+    .resumen-card .val { font-size: 1.5rem; font-weight: 800; color: var(--primary-color); }
+    .resumen-card .lbl { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+    .rep-table td, .rep-table th { white-space: nowrap; }
   </style>
 </head>
 <body id="appBody">
 
 <div id="toastContainer" class="toast-container"></div>
+<div id="sidebarOverlay" class="sidebar-overlay"></div>
 <button class="mobile-toggle" id="mobileToggle"><i class="fas fa-bars"></i></button>
 
-<div id="loginScreen" style="min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--primary-dark); padding:1rem;">
-  <div class="login-card" id="loginCard" style="background:var(--bg-card); padding:2.5rem; border-radius:16px; width:100%; max-width:360px; text-align:center;">
-    <i class="fas fa-store" style="font-size:3rem; color:var(--primary-color); margin-bottom:1rem;"></i>
-    <h2>ERP POS LITE</h2>
-    <p class="text-muted" style="margin-bottom:1.5rem;">Doble click aquí para auto-rellenar rápido</p>
-    <div class="form-group" style="text-align:left;"><label>Usuario</label><input type="text" id="login_usuario" placeholder="admin"></div>
-    <div class="form-group" style="text-align:left;"><label>PIN / Contraseña</label><input type="password" id="login_password" placeholder="••••••"></div>
-    <button class="btn primary-btn" style="width:100%; justify-content:center; margin-top:1.25rem; height:44px;" onclick="handleLogin()">
+<div id="loginScreen" style="min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--primary-dark); padding:1rem; position:relative; overflow:hidden;">
+  <!-- Círculos decorativos de fondo -->
+  <div style="position:absolute; width:500px; height:500px; border-radius:50%; background:rgba(5,93,226,0.12); top:-120px; right:-120px; pointer-events:none;"></div>
+  <div style="position:absolute; width:300px; height:300px; border-radius:50%; background:rgba(5,93,226,0.08); bottom:-60px; left:-60px; pointer-events:none;"></div>
+
+  <div id="loginCard" style="background:var(--bg-card); padding:2.5rem; border-radius:20px; width:100%; max-width:380px; text-align:center; position:relative; z-index:1; box-shadow:0 25px 50px rgba(0,0,0,0.35);">
+    <!-- Logo -->
+    <div style="width:72px; height:72px; background:var(--primary-color); border-radius:18px; display:inline-flex; align-items:center; justify-content:center; margin-bottom:1.25rem; box-shadow:0 8px 24px rgba(5,93,226,0.4);">
+      <i class="fas fa-cash-register" style="font-size:1.9rem; color:white;"></i>
+    </div>
+    <div style="font-size:1.5rem; font-weight:800; color:var(--text-main); letter-spacing:-0.02em; margin-bottom:0.2rem;">ERP POS LITE</div>
+    <div style="font-size:0.83rem; color:var(--text-muted); margin-bottom:2rem;">Sistema de Punto de Venta · v4.5<br><span style="font-size:0.76rem; opacity:0.6;">Doble clic aquí para acceso rápido</span></div>
+
+    <!-- Campos -->
+    <div style="position:relative; margin-bottom:0.85rem;">
+      <i class="fas fa-user" style="position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--text-muted); font-size:0.85rem;"></i>
+      <input type="text" id="login_usuario" placeholder="Usuario" autocomplete="username"
+        style="width:100%; padding:12px 12px 12px 40px; border:1.5px solid var(--border-color); border-radius:10px; background:var(--bg-body); color:var(--text-main); font-size:0.95rem; transition:border-color 0.2s;"
+        onfocus="this.style.borderColor='var(--primary-color)'" onblur="this.style.borderColor='var(--border-color)'"
+        onkeydown="if(event.key==='Enter')document.getElementById('login_password').focus()">
+    </div>
+    <div style="position:relative; margin-bottom:1rem;">
+      <i class="fas fa-lock" style="position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--text-muted); font-size:0.85rem;"></i>
+      <input type="password" id="login_password" placeholder="PIN o contraseña" autocomplete="current-password"
+        style="width:100%; padding:12px 12px 12px 40px; border:1.5px solid var(--border-color); border-radius:10px; background:var(--bg-body); color:var(--text-main); font-size:0.95rem; transition:border-color 0.2s;"
+        onfocus="this.style.borderColor='var(--primary-color)'" onblur="this.style.borderColor='var(--border-color)'"
+        onkeydown="if(event.key==='Enter')handleLogin()">
+    </div>
+
+    <button onclick="handleLogin()" id="loginBtn"
+      style="width:100%; height:48px; background:var(--primary-color); color:white; border:none; border-radius:10px; font-size:1rem; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; transition:background 0.2s, transform 0.1s;"
+      onmouseover="this.style.background='#044bc5'" onmouseout="this.style.background='var(--primary-color)'"
+      onmousedown="this.style.transform='scale(0.98)'" onmouseup="this.style.transform='scale(1)'">
       <i class="fas fa-sign-in-alt"></i> Ingresar
     </button>
+
+    <div id="loginError" style="display:none; margin-top:0.85rem; padding:10px 14px; background:rgba(220,53,69,0.1); border:1px solid rgba(220,53,69,0.3); border-radius:8px; color:var(--danger-color); font-size:0.85rem; font-weight:600;">
+      <i class="fas fa-exclamation-circle"></i> Usuario o PIN incorrecto
+    </div>
+
+    <div style="font-size:0.72rem; color:var(--text-muted); margin-top:1.75rem;">
+      © ERP POS LITE · Uso interno
+    </div>
   </div>
 </div>
 
@@ -221,7 +344,10 @@
         </div>
 
         <div class="carrito-panel">
-          <h3 style="margin-bottom:1rem; padding-bottom:0.5rem; border-bottom:1px solid var(--border-color);"><i class="fas fa-list-ol"></i> Carrito</h3>
+          <h3 style="margin-bottom:1rem; padding-bottom:0.5rem; border-bottom:1px solid var(--border-color);">
+            <i class="fas fa-list-ol"></i> Carrito
+            <span id="carritoBadge" class="carrito-badge hidden">0</span>
+          </h3>
           <div id="carritoItems" style="min-height:160px; max-height:280px; overflow-y:auto; margin-bottom:1rem;">
             <p class="text-muted text-center" style="margin-top:3rem;">Carrito vacío</p>
           </div>
@@ -239,7 +365,7 @@
             </div>
           </div>
           <button id="btnFinalizarVenta" class="btn primary-btn" style="width:100%; justify-content:center; height:48px; font-size:1.05rem;" onclick="finalizarVenta()">
-            <i class="fas fa-check-circle"></i> Registrar Cobro Exitioso
+            <i class="fas fa-check-circle"></i> Registrar Cobro Exitoso
           </button>
         </div>
       </div>
@@ -272,6 +398,10 @@
           <thead><tr><th>Nombre</th><th>Código</th><th>Categoría</th><th>Existencia</th><th>P.Compra</th><th>P.Venta</th><th>Acciones</th></tr></thead>
           <tbody id="inventarioBody"></tbody>
         </table>
+        <div class="paginacion" id="inventarioPaginacion">
+          <span id="paginacionInfo" style="color:var(--text-muted);">—</span>
+          <div class="paginacion-btns" id="paginacionBtns"></div>
+        </div>
       </div>
     </section>
 
@@ -320,13 +450,32 @@
 
     <section id="reportes" class="content-section">
       <h2><i class="fas fa-chart-bar"></i> Reportes de Ventas</h2>
-      <div style="display:flex; gap:10px; margin:1rem 0; flex-wrap:wrap;">
-        <button class="btn secondary-btn" onclick="cargarReporte('hoy')">Reporte Diario (Hoy)</button>
-        <button class="btn secondary-btn" onclick="cargarReporte('semana')">Reporte Semanal</button>
-        <button class="btn secondary-btn" onclick="cargarReporte('mes')">Reporte Mensual</button>
+
+      <div class="reporte-btns">
+        <!-- Selector de período -->
+        <div class="btn-group periodo">
+          <button id="rbtn-hoy" onclick="cargarReporte('hoy')" class="active"><i class="fas fa-calendar-day"></i> Hoy</button>
+          <button id="rbtn-semana" onclick="cargarReporte('semana')"><i class="fas fa-calendar-week"></i> Semana</button>
+          <button id="rbtn-mes" onclick="cargarReporte('mes')"><i class="fas fa-calendar-alt"></i> Mes</button>
+        </div>
+
+        <!-- Exportadores -->
+        <div class="btn-group export export-btn-group" id="exportBtns" style="display:none;">
+          <button class="pdf-btn" onclick="exportarPDF()"><i class="fas fa-file-pdf"></i> Exportar PDF</button>
+          <button class="excel-btn" onclick="exportarExcel()"><i class="fas fa-file-excel"></i> Exportar Excel</button>
+        </div>
       </div>
-      <div id="resumenReporte"></div>
-      <div class="data-table-container"><table class="data-table"><thead id="repHead"></thead><tbody id="repBody"></tbody></table></div>
+
+      <!-- Resumen cards -->
+      <div class="reporte-resumen-grid" id="resumenReporte"></div>
+
+      <!-- Tabla de ventas -->
+      <div class="data-table-container">
+        <table class="data-table rep-table">
+          <thead id="repHead"></thead>
+          <tbody id="repBody"></tbody>
+        </table>
+      </div>
     </section>
 
     <section id="papelera" class="content-section">
@@ -355,6 +504,9 @@
   let inventarioGlobal = [], carrito = [];
   let categoriasGlobal = [];
   let searchTimeout = null;
+  let paginaActual = 1;
+  const POR_PAGINA = 50;
+  let inventarioFiltrado = [];
   
   // SCANNER VARS
   let html5QrScanner = null;
@@ -362,13 +514,32 @@
   let availableCameras = [];
   let selectedCameraId = null;
   
-  // ARRAYS PARA RESÚMENES (Para mostrar en los modales de "Ver más")
+  // ARRAYS PARA RESÚMENES
   let arrayBajas = [];
   let arrayTop = [];
 
   // SINTETIZADOR DE AUDIO (BIP)
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   let audioCtx;
+
+  // ── SPINNER ──────────────────────────────────────────────────────
+  function showSpinner(msg = 'Cargando...') {
+    let el = document.getElementById('spinnerOverlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'spinnerOverlay';
+      el.className = 'spinner-overlay';
+      el.innerHTML = `<div class="spinner-ring"></div><div class="spinner-label" id="spinnerLabel">${msg}</div>`;
+      document.body.appendChild(el);
+    } else {
+      document.getElementById('spinnerLabel').textContent = msg;
+      el.style.display = 'flex';
+    }
+  }
+  function hideSpinner() {
+    const el = document.getElementById('spinnerOverlay');
+    if (el) el.style.display = 'none';
+  }
 
   function playBeep() {
     try {
@@ -389,9 +560,30 @@
   document.addEventListener('DOMContentLoaded', () => {
     setupNavigation();
     setupMobileMenu();
-    setupFastLoginShortcut();
     document.getElementById('v_pago_con').addEventListener('input', calcularVueltoCambio);
     setupFormsSubmit();
+
+    // ── Persistencia de sesión ──
+    if (sessionStorage.getItem('pos_logueado') === '1') {
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('mainApp').classList.remove('hidden');
+      loadInitialData();
+    }
+
+    // Presionar Enter en login
+    document.getElementById('login_password').addEventListener('keydown', e => {
+      if (e.key === 'Enter') handleLogin();
+    });
+
+    // Doble clic en la tarjeta = acceso rápido sin mostrar credenciales
+    document.getElementById('loginCard').addEventListener('dblclick', () => {
+      if (!audioCtx) audioCtx = new AudioContext();
+      sessionStorage.setItem('pos_logueado', '1');
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('mainApp').classList.remove('hidden');
+      dispararAccionExitosa('Sesión iniciada correctamente.');
+      loadInitialData();
+    });
   });
 
   function dispararAccionExitosa(mensaje) {
@@ -414,25 +606,24 @@
     document.getElementById(id).classList.add('hidden');
   }
 
-  function setupFastLoginShortcut() {
-    document.getElementById('loginCard')?.addEventListener('dblclick', () => {
-      document.getElementById('login_usuario').value = 'admin';
-      document.getElementById('login_password').value = 'admin123';
-      handleLogin();
-    });
-  }
-
   async function handleLogin() {
     const u = document.getElementById('login_usuario').value.trim().toLowerCase();
     const p = document.getElementById('login_password').value.trim();
-    if (!audioCtx) audioCtx = new AudioContext(); 
-    
+    const errDiv = document.getElementById('loginError');
+    errDiv.style.display = 'none';
+    if (!audioCtx) audioCtx = new AudioContext();
+
     if (u === 'admin' && p === 'admin123') {
+      sessionStorage.setItem('pos_logueado', '1');
       document.getElementById('loginScreen').classList.add('hidden');
       document.getElementById('mainApp').classList.remove('hidden');
       dispararAccionExitosa('Sesión iniciada correctamente.');
       await loadInitialData();
-    } else { showToast('PIN o Usuario incorrecto.', 'error'); }
+    } else {
+      errDiv.style.display = 'block';
+      document.getElementById('login_password').value = '';
+      document.getElementById('login_password').focus();
+    }
   }
 
   function setupNavigation() {
@@ -449,18 +640,29 @@
         if (sectionId === 'inventario') loadInventario();
         if (sectionId === 'papelera') loadPapelera();
         if (sectionId === 'categorias') renderCategorias();
-        if (window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('active');
+        if (window.innerWidth <= 768) {
+          document.getElementById('sidebar').classList.remove('active');
+          document.getElementById('sidebarOverlay').classList.remove('active');
+        }
       });
     });
   }
 
   function setupMobileMenu() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
     document.getElementById('mobileToggle').addEventListener('click', () => {
-      document.getElementById('sidebar').classList.toggle('active');
+      sidebar.classList.toggle('active');
+      overlay.classList.toggle('active');
+    });
+    overlay.addEventListener('click', () => {
+      sidebar.classList.remove('active');
+      overlay.classList.remove('active');
     });
   }
 
   async function loadInitialData() {
+    showSpinner('Conectando con la nube...');
     try {
       const res = await fetch(`${SCRIPT_URL}?action=getCategorias`).then(r => r.json());
       if (res.status === 'success') {
@@ -468,7 +670,8 @@
         renderCategorias();
       }
       await loadInventario();
-    } catch(e) {}
+    } catch(e) { showToast('Error al conectar con el servidor.', 'error'); }
+    hideSpinner();
   }
 
   // --- CATEGORÍAS (Listar, Eliminar, Editar) ---
@@ -518,33 +721,72 @@
 
   // --- LÓGICA DE INVENTARIO Y RESUMEN ---
   async function loadInventario() {
+    showSpinner('Cargando inventario...');
     try {
       const res = await fetch(`${SCRIPT_URL}?action=getInventario`).then(r => r.json());
       if (res.status === 'success') {
         inventarioGlobal = res.data;
+        paginaActual = 1;
         filtrarInventario();
         calcularResumenInventario();
       }
-    } catch(e) {}
+    } catch(e) { showToast('Error al cargar inventario.', 'error'); }
+    hideSpinner();
   }
 
   function filtrarInventario() {
     const q = document.getElementById('f_texto').value.toLowerCase();
+    inventarioFiltrado = inventarioGlobal.filter(p => p.nombre.toLowerCase().includes(q) || String(p['código']).toLowerCase().includes(q));
+    paginaActual = 1;
+    renderInventarioPagina();
+  }
+
+  function renderInventarioPagina() {
     const body = document.getElementById('inventarioBody');
-    const filtered = inventarioGlobal.filter(p => p.nombre.toLowerCase().includes(q) || String(p['código']).toLowerCase().includes(q));
-    
-    body.innerHTML = filtered.map(p => `<tr>
-      <td><b>${p.nombre}</b></td>
-      <td><code>${p['código'] || '—'}</code></td>
-      <td>${p['categoría']}</td>
-      <td><b>${p.stock}</b></td>
-      <td>$${parseFloat(p.precio_compra).toFixed(2)}</td>
-      <td>$${parseFloat(p.precio_venta).toFixed(2)}</td>
-      <td>
-        <button class="btn-icon edit" onclick="abrirModEditarProducto('${p.id}')"><i class="fas fa-edit"></i></button>
-        <button class="btn-icon delete" onclick="eliminarProducto('${p.id}', '${p.nombre}')"><i class="fas fa-trash"></i></button>
-      </td>
-    </tr>`).join('');
+    const totalPags = Math.ceil(inventarioFiltrado.length / POR_PAGINA) || 1;
+    if (paginaActual > totalPags) paginaActual = totalPags;
+    const inicio = (paginaActual - 1) * POR_PAGINA;
+    const slice = inventarioFiltrado.slice(inicio, inicio + POR_PAGINA);
+
+    body.innerHTML = slice.map(p => {
+      const stockBajo = parseInt(p.stock) <= (parseInt(p.stock_minimo) || 5);
+      return `<tr>
+        <td><b>${p.nombre}</b></td>
+        <td><code>${p['código'] || '—'}</code></td>
+        <td>${p['categoría']}</td>
+        <td><b style="color:${stockBajo ? 'var(--danger-color)' : 'inherit'}">${p.stock}${stockBajo ? ' ⚠' : ''}</b></td>
+        <td>$${parseFloat(p.precio_compra).toFixed(2)}</td>
+        <td>$${parseFloat(p.precio_venta).toFixed(2)}</td>
+        <td>
+          <button class="btn-icon edit" onclick="abrirModEditarProducto('${p.id}')"><i class="fas fa-edit"></i></button>
+          <button class="btn-icon delete" onclick="eliminarProducto('${p.id}', '${p.nombre}')"><i class="fas fa-trash"></i></button>
+        </td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" class="text-center text-muted" style="padding:2rem;">Sin productos que coincidan.</td></tr>';
+
+    // Info y botones de paginación
+    const fin = Math.min(inicio + POR_PAGINA, inventarioFiltrado.length);
+    document.getElementById('paginacionInfo').textContent =
+      inventarioFiltrado.length === 0 ? 'Sin resultados' :
+      `Mostrando ${inicio + 1}–${fin} de ${inventarioFiltrado.length} productos`;
+
+    const btns = document.getElementById('paginacionBtns');
+    let html = `<button ${paginaActual === 1 ? 'disabled' : ''} onclick="irPagina(${paginaActual - 1})"><i class="fas fa-chevron-left"></i></button>`;
+    for (let i = 1; i <= totalPags; i++) {
+      if (totalPags <= 7 || i === 1 || i === totalPags || Math.abs(i - paginaActual) <= 1) {
+        html += `<button class="${i === paginaActual ? 'active' : ''}" onclick="irPagina(${i})">${i}</button>`;
+      } else if (Math.abs(i - paginaActual) === 2) {
+        html += `<button disabled>…</button>`;
+      }
+    }
+    html += `<button ${paginaActual === totalPags ? 'disabled' : ''} onclick="irPagina(${paginaActual + 1})"><i class="fas fa-chevron-right"></i></button>`;
+    btns.innerHTML = html;
+  }
+
+  function irPagina(n) {
+    paginaActual = n;
+    renderInventarioPagina();
+    document.querySelector('#inventario .data-table-container')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   async function eliminarProducto(id, nombre) {
@@ -776,13 +1018,20 @@
 
   function renderCarrito() {
     const el = document.getElementById('carritoItems');
+    const badge = document.getElementById('carritoBadge');
+
     if (!carrito.length) {
       el.innerHTML = '<p class="text-muted text-center" style="margin-top:3rem;">Carrito vacío</p>';
       document.getElementById('c_total').textContent = '$0.00';
       document.getElementById('c_total').dataset.val = '0';
+      badge.classList.add('hidden');
       calcularVueltoCambio();
       return;
     }
+
+    const totalItems = carrito.reduce((s, i) => s + i.cantidad, 0);
+    badge.textContent = totalItems;
+    badge.classList.remove('hidden');
     
     let total = 0;
     el.innerHTML = carrito.map((item, index) => {
@@ -791,16 +1040,16 @@
       const stockDisp = prodOriginal ? prodOriginal.stock : 0;
 
       return `<div class="carrito-item">
-        <div style="flex:1;">
-          <div style="font-weight:600;">${item.nombre}</div>
-          <div style="font-size:0.75rem; color:var(--text-muted);">Stock disp: ${stockDisp}</div>
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.nombre}</div>
+          <div style="font-size:0.75rem; color:var(--text-muted);">Stock disp: ${stockDisp} · $${item.precio_unitario.toFixed(2)} c/u</div>
         </div>
-        <div class="carrito-qty">
-          <button onclick="cambiarCantidadCarrito(${index},-1)">-</button>
-          <span style="min-width:24px; text-align:center; display:inline-block;">${item.cantidad}</span>
-          <button onclick="cambiarCantidadCarrito(${index},1)">+</button>
+        <div class="carrito-qty" style="flex-shrink:0; margin:0 8px;">
+          <button onclick="cambiarCantidadCarrito(${index},-1)" title="Quitar uno">−</button>
+          <span style="min-width:28px; text-align:center; font-weight:700; display:inline-block;">${item.cantidad}</span>
+          <button onclick="cambiarCantidadCarrito(${index},1)" title="Agregar uno">+</button>
         </div>
-        <div style="width:75px; text-align:right; font-weight:700;">$${(item.cantidad * item.precio_unitario).toFixed(2)}</div>
+        <div style="width:72px; text-align:right; font-weight:700; flex-shrink:0;">$${(item.cantidad * item.precio_unitario).toFixed(2)}</div>
       </div>`;
     }).join('');
     
@@ -884,27 +1133,81 @@
     }
   });
 
-  // REPORTES (CON FECHA, HORA Y CLIENTE)
+  // REPORTES ─────────────────────────────────────────────────────
+  let reporteActualDatos = [];
+  let reporteActualPeriodo = 'hoy';
+
   async function cargarReporte(periodo) {
-    const hoy = new Date(); let ini = new Date();
+    reporteActualPeriodo = periodo;
+
+    // Actualizar botones activos
+    ['hoy','semana','mes'].forEach(p => {
+      const btn = document.getElementById('rbtn-' + p);
+      if (btn) btn.classList.toggle('active', p === periodo);
+    });
+
+    const hoy = new Date();
+    let ini = new Date();
     if (periodo === 'semana') ini.setDate(hoy.getDate() - 7);
     if (periodo === 'mes') ini = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-    
-    const res = await fetch(`${SCRIPT_URL}?action=getReporte&tipo=ventas&fecha_inicio=${ini.toISOString()}&fecha_fin=${hoy.toISOString()}`).then(r => r.json());
-    if(res.status === 'success') {
-      document.getElementById('resumenReporte').innerHTML = `<div style="padding:15px; background:var(--success-light); color:var(--success-color); border-radius:8px; font-weight:bold; margin-bottom:1rem; width:100%;">Total Recaudado en Periodo: $${res.resumen.total.toFixed(2)}</div>`;
-      document.getElementById('repHead').innerHTML = '<tr><th>ID Venta</th><th>Fecha y Hora</th><th>Cliente</th><th>Total Facturado</th></tr>';
-      
-      document.getElementById('repBody').innerHTML = res.data.map(v => {
-        const fechaObj = new Date(v.fecha);
-        const fechaFormat = fechaObj.toLocaleDateString() + ' ' + fechaObj.toLocaleTimeString(); 
-        return `<tr>
-          <td><code>${v.id}</code></td>
-          <td>${fechaFormat}</td>
-          <td>${v.cliente_nombre || 'N/A'}</td>
-          <td><b>$${parseFloat(v.total).toFixed(2)}</b></td>
-        </tr>`;
-      }).join('');
+    if (periodo === 'hoy') { ini = new Date(hoy); ini.setHours(0,0,0,0); }
+
+    document.getElementById('resumenReporte').innerHTML = '<p class="text-muted" style="padding:0.5rem 0">Cargando datos...</p>';
+    document.getElementById('repBody').innerHTML = '';
+    document.getElementById('repHead').innerHTML = '';
+    document.getElementById('exportBtns').style.display = 'none';
+
+    try {
+      const res = await fetch(`${SCRIPT_URL}?action=getReporte&tipo=ventas&fecha_inicio=${ini.toISOString()}&fecha_fin=${hoy.toISOString()}`).then(r => r.json());
+      if (res.status !== 'success') { document.getElementById('resumenReporte').innerHTML = '<p class="text-muted">Sin datos para el período.</p>'; return; }
+
+      const ventas = res.data;
+      reporteActualDatos = ventas;
+
+      // ── Resumen Cards ──
+      const totalVentas = ventas.reduce((s, v) => s + (parseFloat(v.total) || 0), 0);
+      const totalDescuentos = ventas.reduce((s, v) => s + (parseFloat(v.descuento) || 0), 0);
+
+      // Agrupar por día para resumen diario
+      const porDia = {};
+      ventas.forEach(v => {
+        const dia = new Date(v.fecha).toLocaleDateString('es-SV');
+        if (!porDia[dia]) porDia[dia] = { total: 0, tickets: 0 };
+        porDia[dia].total += parseFloat(v.total) || 0;
+        porDia[dia].tickets++;
+      });
+      const diasConVentas = Object.keys(porDia).length;
+      const promedioTicket = ventas.length ? totalVentas / ventas.length : 0;
+
+      const labels = { hoy: 'Hoy', semana: 'Esta semana', mes: 'Este mes' };
+      document.getElementById('resumenReporte').innerHTML = `
+        <div class="resumen-card"><div class="val">$${totalVentas.toFixed(2)}</div><div class="lbl">Total recaudado · ${labels[periodo]}</div></div>
+        <div class="resumen-card"><div class="val">${ventas.length}</div><div class="lbl">Tickets / Ventas</div></div>
+        <div class="resumen-card"><div class="val">$${promedioTicket.toFixed(2)}</div><div class="lbl">Promedio por venta</div></div>
+        <div class="resumen-card"><div class="val">${diasConVentas}</div><div class="lbl">Días con actividad</div></div>
+        <div class="resumen-card"><div class="val">$${totalDescuentos.toFixed(2)}</div><div class="lbl">Total en descuentos</div></div>
+      `;
+
+      // ── Tabla ──
+      document.getElementById('repHead').innerHTML = '<tr><th>ID Venta</th><th>Fecha y Hora</th><th>Cliente</th><th>Subtotal</th><th>Descuento</th><th>Total</th></tr>';
+      document.getElementById('repBody').innerHTML = ventas.length
+        ? ventas.map(v => {
+            const f = new Date(v.fecha);
+            return `<tr>
+              <td><code style="font-size:0.75rem;">${v.id.slice(-8)}</code></td>
+              <td>${f.toLocaleDateString('es-SV')} ${f.toLocaleTimeString('es-SV', {hour:'2-digit',minute:'2-digit'})}</td>
+              <td>${v.cliente_nombre || 'N/A'}</td>
+              <td>$${parseFloat(v.subtotal).toFixed(2)}</td>
+              <td style="color:var(--danger-color);">-$${parseFloat(v.descuento||0).toFixed(2)}</td>
+              <td><b>$${parseFloat(v.total).toFixed(2)}</b></td>
+            </tr>`;
+          }).join('')
+        : '<tr><td colspan="6" class="text-center text-muted" style="padding:2rem;">Sin ventas en este período.</td></tr>';
+
+      if (ventas.length) document.getElementById('exportBtns').style.display = 'flex';
+
+    } catch(e) {
+      document.getElementById('resumenReporte').innerHTML = '<p style="color:var(--danger-color)">Error al conectar con el servidor.</p>';
     }
   }
 
@@ -927,6 +1230,202 @@
     const fileInput = document.getElementById('imp_file');
     if(!fileInput.files.length) return showToast('Selecciona un archivo primero.', 'warning');
     dispararAccionExitosa('Simulación de procesamiento ejecutada.');
+  }
+
+  // ── EXPORTAR PDF ────────────────────────────────────────────────
+  function exportarPDF() {
+    if (!reporteActualDatos.length) return showToast('No hay datos para exportar.', 'warning');
+    try {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+      const labels = { hoy: 'Diario', semana: 'Semanal', mes: 'Mensual' };
+      const titulo = `Reporte de Ventas ${labels[reporteActualPeriodo] || ''}`;
+      const fechaGen = new Date().toLocaleDateString('es-SV', { year:'numeric', month:'long', day:'numeric' });
+
+      // Header
+      doc.setFillColor(9, 25, 51);
+      doc.rect(0, 0, 210, 28, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+      doc.text('ERP POS LITE', 14, 12);
+      doc.setFontSize(11); doc.setFont('helvetica', 'normal');
+      doc.text(titulo, 14, 20);
+      doc.setFontSize(9);
+      doc.text(`Generado: ${fechaGen}`, 195, 20, { align: 'right' });
+
+      // Resumen
+      const totalVentas = reporteActualDatos.reduce((s, v) => s + (parseFloat(v.total) || 0), 0);
+      const totalDesc = reporteActualDatos.reduce((s, v) => s + (parseFloat(v.descuento) || 0), 0);
+      const promedio = reporteActualDatos.length ? totalVentas / reporteActualDatos.length : 0;
+
+      doc.setTextColor(31, 41, 55);
+      doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+      doc.text('RESUMEN DEL PERÍODO', 14, 36);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      const resumenData = [
+        ['Total Recaudado', `$${totalVentas.toFixed(2)}`],
+        ['Total de Ventas', `${reporteActualDatos.length} tickets`],
+        ['Promedio por Venta', `$${promedio.toFixed(2)}`],
+        ['Total Descuentos', `$${totalDesc.toFixed(2)}`],
+      ];
+      doc.autoTable({
+        startY: 38,
+        body: resumenData,
+        theme: 'plain',
+        columnStyles: { 0: { fontStyle:'bold', cellWidth: 60 }, 1: { cellWidth: 40 } },
+        styles: { fontSize: 9, cellPadding: 2 },
+        margin: { left: 14 },
+        tableWidth: 100,
+      });
+
+      // Tabla de ventas por día
+      // Agrupación por día
+      const porDia = {};
+      reporteActualDatos.forEach(v => {
+        const dia = new Date(v.fecha).toLocaleDateString('es-SV');
+        if (!porDia[dia]) porDia[dia] = [];
+        porDia[dia].push(v);
+      });
+
+      let yPos = doc.lastAutoTable.finalY + 8;
+      doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+      doc.text('DETALLE DE VENTAS POR DÍA', 14, yPos);
+      yPos += 3;
+
+      const bodyRows = [];
+      Object.keys(porDia).sort().forEach(dia => {
+        const ventas = porDia[dia];
+        const totalDia = ventas.reduce((s, v) => s + (parseFloat(v.total) || 0), 0);
+        // Fila de encabezado de día
+        bodyRows.push([{ content: `📅 ${dia} — ${ventas.length} venta(s) — Total: $${totalDia.toFixed(2)}`, colSpan: 5, styles: { fontStyle: 'bold', fillColor: [235, 242, 255], textColor: [5, 93, 226] } }]);
+        ventas.forEach(v => {
+          const f = new Date(v.fecha);
+          bodyRows.push([
+            f.toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' }),
+            v.id.slice(-10),
+            v.cliente_nombre || 'N/A',
+            v.descuento ? `-$${parseFloat(v.descuento).toFixed(2)}` : '$0.00',
+            `$${parseFloat(v.total).toFixed(2)}`,
+          ]);
+        });
+      });
+
+      doc.autoTable({
+        startY: yPos,
+        head: [['Hora', 'ID Venta', 'Cliente', 'Descuento', 'Total']],
+        body: bodyRows,
+        theme: 'striped',
+        headStyles: { fillColor: [9, 25, 51], fontSize: 8, fontStyle: 'bold' },
+        styles: { fontSize: 8, cellPadding: 3 },
+        columnStyles: {
+          0: { cellWidth: 18 }, 1: { cellWidth: 30 }, 2: { cellWidth: 60 },
+          3: { cellWidth: 22, halign: 'right' }, 4: { cellWidth: 25, halign: 'right', fontStyle: 'bold' }
+        },
+        margin: { left: 14, right: 14 },
+      });
+
+      // Footer
+      const pageCount = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7); doc.setTextColor(150);
+        doc.text(`ERP POS LITE · Reporte generado para uso fiscal · Página ${i} de ${pageCount}`, 105, 290, { align: 'center' });
+      }
+
+      const nombreArchivo = `Reporte_Ventas_${labels[reporteActualPeriodo]}_${new Date().toISOString().slice(0,10)}.pdf`;
+      doc.save(nombreArchivo);
+      showToast('PDF generado correctamente.', 'success');
+    } catch(e) {
+      showToast('Error al generar PDF: ' + e.message, 'error');
+    }
+  }
+
+  // ── EXPORTAR EXCEL ───────────────────────────────────────────────
+  function exportarExcel() {
+    if (!reporteActualDatos.length) return showToast('No hay datos para exportar.', 'warning');
+    try {
+      const wb = XLSX.utils.book_new();
+      const labels = { hoy: 'Diario', semana: 'Semanal', mes: 'Mensual' };
+
+      // ── Hoja 1: Resumen ──
+      const totalVentas = reporteActualDatos.reduce((s, v) => s + (parseFloat(v.total) || 0), 0);
+      const totalDesc = reporteActualDatos.reduce((s, v) => s + (parseFloat(v.descuento) || 0), 0);
+      const promedio = reporteActualDatos.length ? totalVentas / reporteActualDatos.length : 0;
+
+      const porDia = {};
+      reporteActualDatos.forEach(v => {
+        const dia = new Date(v.fecha).toLocaleDateString('es-SV');
+        if (!porDia[dia]) porDia[dia] = { ventas: 0, total: 0 };
+        porDia[dia].ventas++;
+        porDia[dia].total += parseFloat(v.total) || 0;
+      });
+
+      const resumenRows = [
+        ['ERP POS LITE — Reporte de Ventas ' + (labels[reporteActualPeriodo] || ''), '', ''],
+        ['Generado:', new Date().toLocaleString('es-SV'), ''],
+        ['', '', ''],
+        ['INDICADOR', 'VALOR', ''],
+        ['Total Recaudado', totalVentas, ''],
+        ['Número de Ventas', reporteActualDatos.length, ''],
+        ['Promedio por Venta', promedio, ''],
+        ['Total Descuentos', totalDesc, ''],
+        ['', '', ''],
+        ['RESUMEN POR DÍA', '', ''],
+        ['Fecha', 'N° Ventas', 'Total del Día'],
+        ...Object.keys(porDia).sort().map(d => [d, porDia[d].ventas, porDia[d].total]),
+      ];
+      const wsResumen = XLSX.utils.aoa_to_sheet(resumenRows);
+      wsResumen['!cols'] = [{ wch: 30 }, { wch: 20 }, { wch: 18 }];
+      XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen');
+
+      // ── Hoja 2: Detalle de Ventas ──
+      const detalleRows = [
+        ['ID Venta', 'Fecha', 'Hora', 'Cliente', 'Subtotal', 'Descuento', 'Total', 'Pago Con', 'Cambio', 'Estado'],
+        ...reporteActualDatos.map(v => {
+          const f = new Date(v.fecha);
+          return [
+            v.id,
+            f.toLocaleDateString('es-SV'),
+            f.toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' }),
+            v.cliente_nombre || 'N/A',
+            parseFloat(v.subtotal) || 0,
+            parseFloat(v.descuento) || 0,
+            parseFloat(v.total) || 0,
+            parseFloat(v.pago_con) || 0,
+            parseFloat(v.cambio) || 0,
+            v.estado || 'completada',
+          ];
+        }),
+      ];
+      const wsDetalle = XLSX.utils.aoa_to_sheet(detalleRows);
+      wsDetalle['!cols'] = [
+        { wch: 36 }, { wch: 14 }, { wch: 10 }, { wch: 24 },
+        { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }
+      ];
+      XLSX.utils.book_append_sheet(wb, wsDetalle, 'Detalle Ventas');
+
+      // ── Hoja 3: Ventas por Día (pivot) ──
+      const pivotRows = [
+        ['Fecha', 'N° Ventas', 'Total del Día', 'Promedio por Venta'],
+        ...Object.keys(porDia).sort().map(d => [
+          d, porDia[d].ventas, porDia[d].total,
+          porDia[d].ventas ? porDia[d].total / porDia[d].ventas : 0
+        ]),
+        ['', '', '', ''],
+        ['TOTALES', reporteActualDatos.length, totalVentas, promedio],
+      ];
+      const wsPivot = XLSX.utils.aoa_to_sheet(pivotRows);
+      wsPivot['!cols'] = [{ wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 20 }];
+      XLSX.utils.book_append_sheet(wb, wsPivot, 'Por Día');
+
+      const nombreArchivo = `Reporte_Ventas_${labels[reporteActualPeriodo]}_${new Date().toISOString().slice(0,10)}.xlsx`;
+      XLSX.writeFile(wb, nombreArchivo);
+      showToast('Excel generado correctamente.', 'success');
+    } catch(e) {
+      showToast('Error al generar Excel: ' + e.message, 'error');
+    }
   }
 
   async function iniciarBaseDeDatosRemota() {
