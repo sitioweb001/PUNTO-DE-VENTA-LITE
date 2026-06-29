@@ -233,6 +233,24 @@
 </style>
 
 <div id="toastContainer" class="toast-container"></div>
+
+<div id="modalDesactivarMant" class="modal hidden">
+  <div class="modal-content" style="max-width:380px;">
+    <div class="modal-header">
+      <h3 style="margin:0; color:#ffc107;"><i class="fas fa-triangle-exclamation"></i> Salir del Mantenimiento</h3>
+      <button class="modal-close" onclick="cerrarModal('modalDesactivarMant')"><i class="fas fa-times"></i></button>
+    </div>
+    <p style="margin-bottom:1rem; font-size:0.9rem; color:var(--text-muted);">Ingresa la contraseña para desactivar el modo mantenimiento.</p>
+    <div class="form-group">
+      <label>Contraseña:</label>
+      <input type="password" id="inputPasswordMant" placeholder="Ingresa la contraseña" onkeydown="if(event.key==='Enter')confirmarDesactivarMant()">
+    </div>
+    <div style="display:flex; gap:10px; margin-top:1rem;">
+      <button class="btn secondary-btn" style="flex:1;" onclick="cerrarModal('modalDesactivarMant')">Cancelar</button>
+      <button class="btn primary-btn" style="flex:1;" onclick="confirmarDesactivarMant()"><i class="fas fa-unlock"></i> Desactivar</button>
+    </div>
+  </div>
+</div>
 <div id="sidebarOverlay" class="sidebar-overlay"></div>
 <button class="mobile-toggle" id="mobileToggle"><i class="fas fa-bars"></i></button>
 
@@ -553,25 +571,6 @@
           </div>
         </div>
 
-      </div>
-
-      <!-- Modal contraseña desactivar mantenimiento -->
-      <div id="modalDesactivarMant" class="modal hidden">
-        <div class="modal-content" style="max-width:380px;">
-          <div class="modal-header">
-            <h3 style="margin:0; color:#ffc107;"><i class="fas fa-triangle-exclamation"></i> Salir del Mantenimiento</h3>
-            <button class="modal-close" onclick="cerrarModal('modalDesactivarMant')"><i class="fas fa-times"></i></button>
-          </div>
-          <p style="margin-bottom:1rem; font-size:0.9rem; color:var(--text-muted);">Ingresa la contraseña para desactivar el modo mantenimiento.</p>
-          <div class="form-group">
-            <label>Contraseña:</label>
-            <input type="password" id="inputPasswordMant" placeholder="Ingresa la contraseña" onkeydown="if(event.key==='Enter')confirmarDesactivarMant()">
-          </div>
-          <div style="display:flex; gap:10px; margin-top:1rem;">
-            <button class="btn secondary-btn" style="flex:1;" onclick="cerrarModal('modalDesactivarMant')">Cancelar</button>
-            <button class="btn primary-btn" style="flex:1;" onclick="confirmarDesactivarMant()"><i class="fas fa-unlock"></i> Desactivar</button>
-          </div>
-        </div>
       </div>
 
       <!-- Modal contraseña borrar BD -->
