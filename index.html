@@ -301,19 +301,60 @@
 </div>
 
 <div id="scannerModal" class="modal hidden">
-  <div class="modal-content" style="max-width:400px; padding:1.25rem; text-align:center;">
+  <div class="modal-content" style="max-width:420px; padding:1.25rem; text-align:center;">
     <div class="modal-header">
       <h3 style="margin:0;"><i class="fas fa-camera"></i> Escanear Código</h3>
       <button class="modal-close" onclick="detenerCamaraEscaneo()"><i class="fas fa-times"></i></button>
     </div>
-    
-    <div class="form-group" id="cameraSelectGroup" style="display:none; text-align:left; margin-bottom:10px;">
+
+    <div class="form-group" id="cameraSelectGroup" style="display:none; text-align:left; margin-bottom:8px;">
       <label style="font-size:0.8rem;">Seleccionar Cámara:</label>
       <select id="cameraSelect" onchange="cambiarCamaraEscaneo()"></select>
     </div>
 
-    <div id="interactiveScanner" style="width:100%; min-height:250px; background:#000; border-radius:8px; overflow:hidden; margin:0 auto 1rem;"></div>
-    <button class="btn danger-btn" onclick="detenerCamaraEscaneo()" style="width:100%;"><i class="fas fa-power-off"></i> Cancelar</button>
+    <!-- Controles de imagen para webcam de baja calidad -->
+    <div id="scannerControls" style="display:none; margin-bottom:8px; background:rgba(0,0,0,0.06); border-radius:8px; padding:8px 10px; text-align:left;">
+      <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.04em;">🔧 Mejoras de imagen</div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+        <div>
+          <label style="font-size:0.72rem; color:var(--text-muted);">Brillo</label>
+          <input type="range" id="ctrl_brightness" min="0.5" max="3" step="0.1" value="1.4"
+            oninput="aplicarFiltrosCamara()" style="width:100%; height:4px; cursor:pointer;">
+        </div>
+        <div>
+          <label style="font-size:0.72rem; color:var(--text-muted);">Contraste</label>
+          <input type="range" id="ctrl_contrast" min="0.5" max="4" step="0.1" value="2"
+            oninput="aplicarFiltrosCamara()" style="width:100%; height:4px; cursor:pointer;">
+        </div>
+        <div>
+          <label style="font-size:0.72rem; color:var(--text-muted);">Nitidez</label>
+          <input type="range" id="ctrl_sharpen" min="0" max="5" step="0.5" value="1"
+            oninput="aplicarFiltrosCamara()" style="width:100%; height:4px; cursor:pointer;">
+        </div>
+        <div>
+          <label style="font-size:0.72rem; color:var(--text-muted);">Escala de grises</label>
+          <input type="range" id="ctrl_grayscale" min="0" max="1" step="0.1" value="0"
+            oninput="aplicarFiltrosCamara()" style="width:100%; height:4px; cursor:pointer;">
+        </div>
+      </div>
+      <button onclick="resetearFiltros()" style="margin-top:6px; font-size:0.72rem; background:none; border:none; color:var(--primary-color); cursor:pointer; padding:0; font-weight:600;">↺ Restablecer</button>
+    </div>
+
+    <div id="interactiveScanner" style="width:100%; min-height:250px; background:#000; border-radius:8px; overflow:hidden; margin:0 auto 0.5rem;"></div>
+
+    <!-- Tip de ayuda -->
+    <div id="scannerTip" style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.75rem; padding:6px 10px; background:rgba(5,93,226,0.07); border-radius:6px;">
+      💡 <b>Webcam lenta:</b> Acerca el código lentamente hasta que el recuadro lo capture. Usa los controles de imagen si hay poca luz.
+    </div>
+
+    <!-- Modo foto: captura manual para webcams que no enfocan en movimiento -->
+    <div style="display:flex; gap:8px; margin-bottom:0.5rem;">
+      <button class="btn danger-btn" onclick="detenerCamaraEscaneo()" style="flex:1; height:42px;"><i class="fas fa-power-off"></i> Cancelar</button>
+      <button class="btn secondary-btn" onclick="capturarFotoYLeer()" id="btnFotoCaptura" style="flex:1; height:42px;" title="Congela el frame actual y lo analiza con más tiempo">
+        <i class="fas fa-camera-retro"></i> Capturar foto
+      </button>
+    </div>
+    <canvas id="scanCanvas" style="display:none;"></canvas>
   </div>
 </div>
 
@@ -1046,11 +1087,11 @@
   function iniciarLectorCamara(cameraId) {
     if (html5QrScanner) { html5QrScanner.clear(); }
     html5QrScanner = new Html5Qrcode("interactiveScanner");
-    
+
     const config = {
       fps: 30,
-      qrbox: { width: 300, height: 150 },
-      aspectRatio: 1.0,
+      qrbox: { width: 280, height: 140 },
+      aspectRatio: 1.333,
       disableFlip: false,
       experimentalFeatures: { useBarCodeDetectorIfSupported: true },
       formatsToSupport: [
@@ -1066,14 +1107,23 @@
       ]
     };
 
+    // Constraints avanzados para forzar el mejor enfoque en webcams lentas
+    const videoConstraints = {
+      deviceId: { exact: cameraId },
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      focusMode: 'continuous',
+      zoom: 1,
+      whiteBalanceMode: 'continuous',
+      exposureMode: 'continuous',
+    };
+
     html5QrScanner.start(
-      { deviceId: { exact: cameraId } },
+      videoConstraints,
       config,
       (decodedText) => {
-        // ÉXITO AL LEER
         playBeep();
         detenerCamaraEscaneo();
-        
         if (currentScannerTarget === 'v') {
           procesarLecturaCodigoBarrasPOS(decodedText);
         } else if (currentScannerTarget === 'p') {
@@ -1085,10 +1135,103 @@
           dispararAccionExitosa('Filtro aplicado.');
         }
       },
-      (error) => {} // ignorar lectura fallida de frames vacios
-    ).catch(err => {
+      () => {} // ignorar frames vacíos
+    ).then(() => {
+      // Mostrar controles y aplicar mejoras por defecto
+      document.getElementById('scannerControls').style.display = 'block';
+      aplicarFiltrosCamara();
+      // Intentar activar enfoque continuo mediante la API de tracks
+      try {
+        const video = document.querySelector('#interactiveScanner video');
+        if (video && video.srcObject) {
+          const track = video.srcObject.getVideoTracks()[0];
+          if (track && track.applyConstraints) {
+            track.applyConstraints({ advanced: [{ focusMode: 'continuous', zoom: 1 }] }).catch(()=>{});
+          }
+        }
+      } catch(e) {}
+    }).catch(() => {
       showToast('Error al iniciar la cámara seleccionada.', 'error');
     });
+  }
+
+  // Aplica filtros CSS al video para mejorar lectura en webcams de baja calidad
+  function aplicarFiltrosCamara() {
+    const b  = document.getElementById('ctrl_brightness')?.value  || 1.4;
+    const c  = document.getElementById('ctrl_contrast')?.value    || 2;
+    const s  = document.getElementById('ctrl_sharpen')?.value     || 1;
+    const gr = document.getElementById('ctrl_grayscale')?.value   || 0;
+    const video = document.querySelector('#interactiveScanner video');
+    if (video) {
+      // Sharpen via saturate trick (no CSS sharpen nativo, usamos contraste alto)
+      const sharpenContrast = parseFloat(c) + parseFloat(s) * 0.3;
+      video.style.filter = `brightness(${b}) contrast(${sharpenContrast}) grayscale(${gr})`;
+      video.style.imageRendering = 'crisp-edges';
+    }
+  }
+
+  function resetearFiltros() {
+    document.getElementById('ctrl_brightness').value = '1.4';
+    document.getElementById('ctrl_contrast').value   = '2';
+    document.getElementById('ctrl_sharpen').value    = '1';
+    document.getElementById('ctrl_grayscale').value  = '0';
+    aplicarFiltrosCamara();
+  }
+
+  // Captura el frame actual como imagen estática y lo analiza con ZXing-like re-scan
+  // Útil cuando la cámara no enfoca bien en movimiento
+  async function capturarFotoYLeer() {
+    const video = document.querySelector('#interactiveScanner video');
+    if (!video) return showToast('Cámara no activa.', 'warning');
+
+    const btn = document.getElementById('btnFotoCaptura');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analizando...';
+
+    const canvas = document.getElementById('scanCanvas');
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+
+    // Aplicar mismo filtro del video para análisis consistente
+    const b  = document.getElementById('ctrl_brightness')?.value  || 1.4;
+    const c  = document.getElementById('ctrl_contrast')?.value    || 2;
+    const gr = document.getElementById('ctrl_grayscale')?.value   || 0;
+    ctx.filter = `brightness(${b}) contrast(${c}) grayscale(${Math.max(gr, 0.5)})`; // grays ayuda al decode
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Intentar leer usando Html5Qrcode.scanFile (analiza imagen estática)
+    try {
+      canvas.toBlob(async (blob) => {
+        const file = new File([blob], 'capture.png', { type: 'image/png' });
+        const scanner = new Html5Qrcode('scanCanvas');
+        try {
+          const result = await scanner.scanFile(file, false);
+          scanner.clear();
+          playBeep();
+          detenerCamaraEscaneo();
+          if (currentScannerTarget === 'v') {
+            procesarLecturaCodigoBarrasPOS(result);
+          } else if (currentScannerTarget === 'p') {
+            document.getElementById('p_codigo').value = result;
+            dispararAccionExitosa('Código capturado.');
+          } else if (currentScannerTarget === 'i') {
+            document.getElementById('f_texto').value = result;
+            filtrarInventario();
+            dispararAccionExitosa('Filtro aplicado.');
+          }
+        } catch(err) {
+          scanner.clear();
+          showToast('No se detectó código en la foto. Ajusta brillo/contraste e intenta de nuevo.', 'warning');
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-camera-retro"></i> Capturar foto';
+        }
+      }, 'image/png');
+    } catch(e) {
+      showToast('Error al capturar imagen.', 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-camera-retro"></i> Capturar foto';
+    }
   }
 
   function detenerCamaraEscaneo() {
