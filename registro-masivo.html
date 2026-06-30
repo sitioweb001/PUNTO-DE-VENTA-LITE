@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#091933">
+  <title>Registro Masivo de Productos — ERP POS LITE</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    :root {
+      --primary-color: #055de2; --primary-dark: #091933; --primary-light: #e8f2fc;
+      --success-color: #28a745; --danger-color: #dc3545; --warning-color: #ffc107;
+      --bg-body: #f4f6f9; --bg-card: #ffffff; --bg-sidebar: #091933;
+      --text-main: #1f2937; --text-muted: #6b7280; --border-color: #e5e7eb;
+      --radius: 8px; --radius-lg: 12px;
+    }
+    body.dark-mode {
+      --bg-body: #0f172a; --bg-card: #1e293b; --bg-sidebar: #020817;
+      --text-main: #e2e8f0; --text-muted: #94a3b8; --border-color: #334155;
+      --primary-light: #1e3a5f;
+    }
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html, body { height:100%; }
+    body { font-family:'Inter', -apple-system, sans-serif; background:var(--bg-body); color:var(--text-main); transition:background .3s, color .3s; }
+
+    .topbar { background:var(--bg-sidebar); color:#fff; padding:1rem 1.5rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+    .topbar h1 { font-size:1.05rem; font-weight:700; display:flex; align-items:center; gap:10px; }
+    .topbar a.volver { color:rgba(255,255,255,0.75); text-decoration:none; font-size:0.85rem; display:flex; align-items:center; gap:6px; }
+    .topbar a.volver:hover { color:#fff; }
+
+    .wrap { max-width:920px; margin:0 auto; padding:1.5rem; }
+    .card { background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg); padding:1.5rem; margin-bottom:1.5rem; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+    .text-muted { color:var(--text-muted); }
+
+    .form-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:1rem; margin-top:1rem; }
+    .form-group label { display:block; margin-bottom:6px; font-weight:600; font-size:.85rem; }
+    .form-group input, .form-group select { width:100%; padding:10px 12px; border:1px solid var(--border-color); border-radius:var(--radius); background:var(--bg-card); color:var(--text-main); font-size:.9rem; }
+    .form-group input:focus, .form-group select:focus { outline:none; border-color:var(--primary-color); }
+    .full-width { grid-column:1 / -1; }
+
+    .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:10px 16px; border:none; border-radius:var(--radius); font-weight:600; cursor:pointer; transition:background .2s; font-size:.9rem; }
+    .primary-btn { background:var(--primary-color); color:#fff; }
+    .primary-btn:hover { background:#044bc5; }
+    .secondary-btn { background:var(--bg-card); color:var(--text-main); border:1px solid var(--border-color); }
+    .secondary-btn:hover { background:var(--primary-light); }
+    .danger-btn { background:var(--danger-color); color:#fff; }
+    .btn:disabled { opacity:.5; cursor:not-allowed; }
+
+    .data-table-container { overflow-x:auto; border:1px solid var(--border-color); border-radius:var(--radius-lg); margin-top:1rem; }
+    .data-table { width:100%; border-collapse:collapse; min-width:600px; }
+    .data-table th, .data-table td { padding:10px 14px; border-bottom:1px solid var(--border-color); text-align:left; font-size:.85rem; }
+    .data-table th { background:var(--primary-dark); color:#fff; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; }
+    .data-table tbody tr:nth-child(even) { background:rgba(0,0,0,.02); }
+    body.dark-mode .data-table tbody tr:nth-child(even) { background:rgba(255,255,255,.02); }
+
+    .badge { display:inline-flex; align-items:center; justify-content:center; background:var(--primary-color); color:#fff; border-radius:20px; font-size:.72rem; font-weight:700; min-width:22px; height:22px; padding:0 8px; }
+
+    .modal { position:fixed; inset:0; background:rgba(0,0,0,.7); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; z-index:2000; padding:1rem; }
+    .modal-content { background:var(--bg-card); border-radius:var(--radius-lg); width:100%; max-width:420px; padding:1.25rem; text-align:center; }
+    .modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; font-weight:bold; }
+    .modal-close { background:none; border:none; font-size:1.3rem; cursor:pointer; color:var(--text-muted); }
+    .hidden { display:none !important; }
+
+    .toast-container { position:fixed; top:1.25rem; right:1.25rem; z-index:9999; display:flex; flex-direction:column; gap:.75rem; max-width:340px; width:calc(100% - 2.5rem); }
+    .toast { background:var(--primary-dark); color:#fff; padding:14px 18px; border-radius:var(--radius-lg); font-weight:600; box-shadow:0 10px 15px -3px rgba(0,0,0,.2); display:flex; align-items:center; gap:10px; opacity:0; transform:translateY(-16px); transition:all .3s cubic-bezier(.34,1.56,.64,1); font-size:.88rem; }
+    .toast.show { opacity:1; transform:translateY(0); }
+    .toast-success { border-left:5px solid var(--success-color); background:#0c192e; }
+    .toast-error { border-left:5px solid var(--danger-color); background:#220e10; }
+    .toast-warning { border-left:5px solid var(--warning-color); background:#241d07; }
+
+    .spinner-overlay { position:fixed; inset:0; background:rgba(9,25,51,.6); z-index:5000; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1rem; }
+    .spinner-ring { width:48px; height:48px; border:4px solid rgba(255,255,255,.2); border-top-color:#fff; border-radius:50%; animation:spin .75s linear infinite; }
+    .spinner-label { color:#fff; font-size:.85rem; font-weight:600; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    .actions-bar { display:flex; gap:10px; flex-wrap:wrap; margin-top:1.25rem; }
+    .btn-icon-mini { width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; border:none; cursor:pointer; background:rgba(220,53,69,.1); color:var(--danger-color); }
+
+    @media (max-width:640px) { .form-grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+
+  <div class="topbar">
+    <h1><i class="fas fa-barcode"></i> Registro Masivo de Productos</h1>
+    <div style="display:flex; align-items:center; gap:14px;">
+      <button class="btn secondary-btn" style="padding:6px 12px;" onclick="document.body.classList.toggle('dark-mode')"><i class="fas fa-moon"></i> Modo Oscuro</button>
+      <a class="volver" href="index.html"><i class="fas fa-arrow-left"></i> Volver al sistema</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+
+    <div class="card">
+      <h2><i class="fas fa-box-open"></i> Registrar Nuevo Producto</h2>
+      <p class="text-muted" style="font-size:.85rem; margin-top:4px;">Escanea o escribe cada producto y agrégalo a la lista. Cuando termines, regístralos todos de un solo en la base de datos, o descarga un CSV para subirlo después en el Importador Masivo.</p>
+
+      <form id="productoForm" class="form-grid">
+        <div class="form-group">
+          <label>Código de Barras:</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="p_codigo" required placeholder="Escribe o escanea...">
+            <button type="button" class="btn secondary-btn" onclick="activarCamaraEscaneo()" style="padding:0 12px;"><i class="fas fa-camera"></i></button>
+          </div>
+        </div>
+        <div class="form-group"><label>Nombre del Producto:</label><input type="text" id="p_nombre" required></div>
+        <div class="form-group"><label>Categoría:</label><select id="p_categoria" required><option value="">Seleccione...</option></select></div>
+        <div class="form-group"><label>Stock Inicial:</label><input type="number" id="p_stock" required min="0" value="0"></div>
+        <div class="form-group"><label>Precio de Compra ($):</label><input type="number" id="p_precio_compra" required min="0" step="0.01"></div>
+        <div class="form-group"><label>Precio de Venta ($):</label><input type="number" id="p_precio_venta" required min="0" step="0.01"></div>
+        <div class="full-width"><button type="submit" class="btn primary-btn"><i class="fas fa-plus"></i> Agregar a la Lista</button></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+        <h3><i class="fas fa-list-ol"></i> Productos en cola <span class="badge" id="contadorPendientes">0</span></h3>
+        <button class="btn secondary-btn" style="padding:6px 12px; font-size:.8rem;" onclick="vaciarLista()"><i class="fas fa-broom"></i> Vaciar lista</button>
+      </div>
+
+      <div class="data-table-container">
+        <table class="data-table">
+          <thead><tr><th>Nombre</th><th>Código</th><th>Categoría</th><th>Stock</th><th>P.Compra</th><th>P.Venta</th><th></th></tr></thead>
+          <tbody id="pendientesBody"><tr><td colspan="7" class="text-muted" style="text-align:center; padding:1.5rem;">Aún no has agregado productos.</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn primary-btn" id="btnRegistrarTodo" onclick="registrarTodoEnBD()" disabled><i class="fas fa-cloud-upload-alt"></i> Registrar Todo en la Base de Datos</button>
+        <button class="btn secondary-btn" id="btnDescargarCSV" onclick="descargarCSV()" disabled><i class="fas fa-file-csv"></i> Descargar CSV</button>
+      </div>
+      <p class="text-muted" style="font-size:.78rem; margin-top:.6rem;">El CSV descargado puede subirse luego en <b>Importador Masivo → Ejecutar</b> dentro del sistema.</p>
+    </div>
+
+  </div>
+
+  <!-- Modal escáner -->
+  <div id="scannerModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 style="margin:0;"><i class="fas fa-camera"></i> Escanear Código</h3>
+        <button class="modal-close" onclick="detenerCamaraEscaneo()"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="form-group" id="cameraSelectGroup" style="display:none; text-align:left; margin-bottom:8px;">
+        <label style="font-size:.8rem;">Seleccionar Cámara:</label>
+        <select id="cameraSelect" onchange="cambiarCamaraEscaneo()"></select>
+      </div>
+      <div id="interactiveScanner" style="width:100%; min-height:250px; background:#000; border-radius:8px; overflow:hidden; margin:0 auto .75rem;"></div>
+      <button class="btn danger-btn" style="width:100%; height:42px;" onclick="detenerCamaraEscaneo()"><i class="fas fa-power-off"></i> Cancelar</button>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="toast-container"></div>
+
+<script>
+  // ¡Debe ser el mismo SCRIPT_URL que usa index.html!
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwbYNUf0--D2RVqFyaBZHFxQuClX6RBybuhK6kJU9Q02NZyICUIXEnUWIR1x25xMnfMrA/exec";
+  const STORAGE_KEY = 'rm_productos_pendientes';
+
+  let categoriasGlobal = [];
+  let pendientes = [];
+  let html5QrScanner = null;
+  let availableCameras = [];
+  let selectedCameraId = null;
+
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  let audioCtx;
+  function playBeep() {
+    try {
+      if (!audioCtx) audioCtx = new AudioContext();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+      o.connect(g); g.connect(audioCtx.destination);
+      o.type = 'square'; o.frequency.value = 1000;
+      g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      o.start(audioCtx.currentTime); o.stop(audioCtx.currentTime + 0.1);
+    } catch(e) {}
+  }
+
+  function showToast(msg, type='success') {
+    const c = document.getElementById('toastContainer');
+    const t = document.createElement('div');
+    t.className = `toast toast-${type}`;
+    t.innerHTML = `<i class="fas ${type==='success'?'fa-check-circle':'fa-exclamation-triangle'}"></i> <span>${msg}</span>`;
+    c.appendChild(t);
+    setTimeout(() => t.classList.add('show'), 10);
+    setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 3500);
+  }
+
+  function showSpinner(msg='Cargando...') {
+    let el = document.getElementById('spinnerOverlay');
+    if (!el) {
+      el = document.createElement('div'); el.id = 'spinnerOverlay'; el.className = 'spinner-overlay';
+      el.innerHTML = `<div class="spinner-ring"></div><div class="spinner-label" id="spinnerLabel">${msg}</div>`;
+      document.body.appendChild(el);
+    } else { document.getElementById('spinnerLabel').textContent = msg; el.style.display = 'flex'; }
+  }
+  function hideSpinner() { const el = document.getElementById('spinnerOverlay'); if (el) el.style.display = 'none'; }
+
+  // ── PERSISTENCIA LOCAL DE LA LISTA EN COLA (para no perder el trabajo si se recarga la página por accidente) ──
+  function guardarPendientesLocal() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(pendientes)); } catch(e){} }
+  function cargarPendientesLocal() { try { pendientes = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch(e) { pendientes = []; } }
+
+  function renderTablaPendientes() {
+    const body = document.getElementById('pendientesBody');
+    document.getElementById('contadorPendientes').textContent = pendientes.length;
+    document.getElementById('btnRegistrarTodo').disabled = pendientes.length === 0;
+    document.getElementById('btnDescargarCSV').disabled = pendientes.length === 0;
+
+    if (!pendientes.length) {
+      body.innerHTML = '<tr><td colspan="7" class="text-muted" style="text-align:center; padding:1.5rem;">Aún no has agregado productos.</td></tr>';
+      return;
+    }
+    body.innerHTML = pendientes.map((p, i) => `
+      <tr>
+        <td><b>${p.nombre}</b></td>
+        <td><code>${p.codigo || '—'}</code></td>
+        <td>${p.categoria || '—'}</td>
+        <td>${p.stock}</td>
+        <td>$${parseFloat(p.precio_compra).toFixed(2)}</td>
+        <td>$${parseFloat(p.precio_venta).toFixed(2)}</td>
+        <td><button class="btn-icon-mini" onclick="eliminarDeLista(${i})" title="Quitar de la lista"><i class="fas fa-trash"></i></button></td>
+      </tr>
+    `).join('');
+  }
+
+  function eliminarDeLista(i) {
+    pendientes.splice(i, 1);
+    guardarPendientesLocal();
+    renderTablaPendientes();
+  }
+
+  function vaciarLista() {
+    if (!pendientes.length) return;
+    if (!confirm('¿Vaciar toda la lista de productos en cola? Esta acción no se puede deshacer.')) return;
+    pendientes = [];
+    guardarPendientesLocal();
+    renderTablaPendientes();
+    showToast('Lista vaciada.', 'warning');
+  }
+
+  document.getElementById('productoForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const item = {
+      codigo: document.getElementById('p_codigo').value.trim(),
+      nombre: document.getElementById('p_nombre').value.trim(),
+      categoria: document.getElementById('p_categoria').value,
+      stock: parseInt(document.getElementById('p_stock').value) || 0,
+      precio_compra: parseFloat(document.getElementById('p_precio_compra').value) || 0,
+      precio_venta: parseFloat(document.getElementById('p_precio_venta').value) || 0,
+    };
+    if (!item.nombre) return showToast('El nombre del producto es obligatorio.', 'warning');
+    if (!item.categoria) return showToast('Selecciona una categoría.', 'warning');
+    pendientes.push(item);
+    guardarPendientesLocal();
+    renderTablaPendientes();
+    showToast('Producto agregado a la lista.', 'success');
+    e.target.reset();
+    document.getElementById('p_stock').value = 0;
+    document.getElementById('p_codigo').focus();
+  });
+
+  // ── REGISTRAR TODO EN LA BASE DE DATOS (en un solo lote) ──
+  async function registrarTodoEnBD() {
+    if (!pendientes.length) return;
+    if (!confirm(`¿Registrar ${pendientes.length} producto(s) directamente en la base de datos?`)) return;
+    showSpinner('Registrando productos...');
+    try {
+      const res = await fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify({ action:'importarDatos', tipo:'productos', filas: pendientes }) }).then(r => r.json());
+      hideSpinner();
+      if (res.status === 'success') {
+        showToast(res.message || 'Productos registrados con éxito.', 'success');
+        pendientes = [];
+        guardarPendientesLocal();
+        renderTablaPendientes();
+      } else { showToast(res.message || 'Error al registrar los productos.', 'error'); }
+    } catch(e) { hideSpinner(); showToast('Error de conexión con el servidor.', 'error'); }
+  }
+
+  // ── DESCARGAR CSV (compatible con el Importador Masivo del sistema) ──
+  function descargarCSV() {
+    if (!pendientes.length) return;
+    const headers = ['nombre','codigo','categoria','precio_compra','precio_venta','stock'];
+    const escape = v => {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    };
+    const filas = pendientes.map(p => [p.nombre, p.codigo, p.categoria, p.precio_compra, p.precio_venta, p.stock].map(escape).join(','));
+    const csv = [headers.join(','), ...filas].join('\n');
+    const blob = new Blob(['\ufeff' + csv], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `productos_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    showToast('CSV descargado. Súbelo en Importador Masivo → Ejecutar.', 'success');
+  }
+
+  // ── CATEGORÍAS ──
+  async function cargarCategorias() {
+    try {
+      const res = await fetch(`${SCRIPT_URL}?action=getCategorias`).then(r => r.json());
+      if (res.status === 'success') {
+        categoriasGlobal = res.data;
+        const sel = document.getElementById('p_categoria');
+        sel.innerHTML = '<option value="">Seleccione...</option>' + categoriasGlobal.map(c => `<option value="${c.nombre}">${c.nombre}</option>`).join('');
+      }
+    } catch(e) { showToast('No se pudo conectar con el servidor para cargar categorías.', 'error'); }
+  }
+
+  // ── ESCÁNER DE CÁMARA ──────────────────────────────────────────
+  function activarCamaraEscaneo() {
+    const modal = document.getElementById('scannerModal');
+    const selectGroup = document.getElementById('cameraSelectGroup');
+    const select = document.getElementById('cameraSelect');
+    modal.classList.remove('hidden');
+
+    Html5Qrcode.getCameras().then(devices => {
+      if (devices && devices.length) {
+        availableCameras = devices;
+        select.innerHTML = devices.map(d => `<option value="${d.id}">${d.label || 'Cámara ' + d.id}</option>`).join('');
+        selectGroup.style.display = 'block';
+        let backCam = devices.find(d => d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('trasera'));
+        selectedCameraId = backCam ? backCam.id : devices[0].id;
+        select.value = selectedCameraId;
+        iniciarLectorCamara(selectedCameraId);
+      } else {
+        showToast('No se encontraron cámaras.', 'error');
+        detenerCamaraEscaneo();
+      }
+    }).catch(() => {
+      showToast('Permisos de cámara denegados.', 'error');
+      detenerCamaraEscaneo();
+    });
+  }
+
+  function cambiarCamaraEscaneo() {
+    selectedCameraId = document.getElementById('cameraSelect').value;
+    if (html5QrScanner) {
+      html5QrScanner.stop().then(() => { html5QrScanner.clear(); iniciarLectorCamara(selectedCameraId); }).catch(()=>{});
+    }
+  }
+
+  function iniciarLectorCamara(cameraId) {
+    if (html5QrScanner) { html5QrScanner.clear(); }
+    html5QrScanner = new Html5Qrcode("interactiveScanner");
+
+    const config = {
+      fps: 15,
+      qrbox: { width: 280, height: 140 },
+      aspectRatio: 1.333,
+      disableFlip: false,
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.ITF,
+        Html5QrcodeSupportedFormats.CODABAR,
+      ]
+    };
+
+    // Constraints básicos únicamente: deviceId + resolución. NO se fuerzan
+    // focusMode/zoom/whiteBalanceMode aquí porque muchas cámaras no los
+    // soportan como constraint exigido y eso rompe el inicio (mismo
+    // problema corregido en index.html).
+    const videoConstraints = { deviceId: { exact: cameraId }, width: { ideal: 1280 }, height: { ideal: 720 } };
+
+    html5QrScanner.start(
+      videoConstraints, config,
+      (decodedText) => {
+        playBeep();
+        detenerCamaraEscaneo();
+        document.getElementById('p_codigo').value = decodedText;
+        showToast('Código capturado.', 'success');
+        document.getElementById('p_nombre').focus();
+      },
+      () => {}
+    ).catch((err) => {
+      showToast(`Error al iniciar la cámara: ${(err && (err.name || err.message)) || 'desconocido'}`, 'error');
+    });
+  }
+
+  function detenerCamaraEscaneo() {
+    document.getElementById('scannerModal').classList.add('hidden');
+    if (html5QrScanner) {
+      html5QrScanner.stop().then(() => html5QrScanner.clear()).catch(()=>{});
+      html5QrScanner = null;
+    }
+  }
+
+  // ── INIT ──
+  document.addEventListener('DOMContentLoaded', () => {
+    cargarPendientesLocal();
+    renderTablaPendientes();
+    cargarCategorias();
+  });
+</script>
+</body>
+</html>
