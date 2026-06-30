@@ -47,7 +47,7 @@
     .dashboard-container { display: flex; min-height: 100vh; }
     .sidebar { width: 240px; background: var(--bg-sidebar); position: fixed; height: 100vh; overflow-y: auto; z-index: 100; transition: transform 0.3s ease; display: flex; flex-direction: column; }
     .logo { padding: 1.5rem; color: white; font-size: 1.25rem; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.08); }
-    .sidebar-nav { display: flex; flex-direction: column; padding: 0.5rem; }
+    .sidebar-nav { display: flex; flex-direction: column; padding: 0.5rem; flex: 1; }
     .sidebar-nav a { display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: rgba(255,255,255,0.8); text-decoration: none; border-radius: var(--radius); font-weight: 500; transition: background 0.2s, color 0.2s; }
     .sidebar-nav a:hover, .sidebar-nav a.active { background: var(--primary-color); color: white; }
     .main-content { flex: 1; margin-left: 240px; padding: 2rem; min-height: 100vh; }
@@ -203,7 +203,54 @@
 </head>
 <body id="appBody">
 
+<!-- ══ PANTALLA MANTENIMIENTO ══ -->
+<div id="mantenimientoScreen" style="display:none; position:fixed; inset:0; z-index:99999; background:var(--primary-dark); flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:2rem;">
+  <!-- fondo decorativo -->
+  <div style="position:absolute;width:600px;height:600px;border-radius:50%;background:rgba(255,193,7,0.07);top:-150px;right:-150px;pointer-events:none;"></div>
+  <div style="position:absolute;width:350px;height:350px;border-radius:50%;background:rgba(255,193,7,0.05);bottom:-80px;left:-80px;pointer-events:none;"></div>
+
+  <!-- Icono -->
+  <div id="mantIcono" ondblclick="pedirDesactivarMant()"
+    style="width:96px;height:96px;border-radius:24px;background:rgba(255,193,7,0.15);border:2px solid rgba(255,193,7,0.4);display:flex;align-items:center;justify-content:center;margin-bottom:2rem;animation:mtPulse 2s ease-in-out infinite;cursor:default;user-select:none;-webkit-user-select:none;">
+    <i class="fas fa-triangle-exclamation" style="font-size:2.8rem;color:#ffc107;pointer-events:none;"></i>
+  </div>
+
+  <!-- Texto -->
+  <div style="font-size:2rem;font-weight:800;color:#ffffff;letter-spacing:-0.02em;margin-bottom:0.5rem;">Sitio en Mantenimiento</div>
+  <div style="font-size:1rem;color:rgba(255,255,255,0.55);max-width:400px;line-height:1.6;margin-bottom:2.5rem;">
+    El sistema está temporalmente fuera de servicio.<br>Por favor vuelva más tarde.
+  </div>
+
+  <!-- Badge versión -->
+  <div style="font-size:0.75rem;color:rgba(255,255,255,0.25);position:absolute;bottom:1.5rem;">ERP POS LITE · v4.5</div>
+</div>
+
+<style>
+  @keyframes mtPulse {
+    0%,100% { box-shadow:0 0 0 0 rgba(255,193,7,0.35); }
+    50%      { box-shadow:0 0 0 18px rgba(255,193,7,0); }
+  }
+</style>
+
 <div id="toastContainer" class="toast-container"></div>
+
+<div id="modalDesactivarMant" class="modal hidden">
+  <div class="modal-content" style="max-width:380px;">
+    <div class="modal-header">
+      <h3 style="margin:0; color:#ffc107;"><i class="fas fa-triangle-exclamation"></i> Salir del Mantenimiento</h3>
+      <button class="modal-close" onclick="cerrarModal('modalDesactivarMant')"><i class="fas fa-times"></i></button>
+    </div>
+    <p style="margin-bottom:1rem; font-size:0.9rem; color:var(--text-muted);">Ingresa la contraseña para desactivar el modo mantenimiento.</p>
+    <div class="form-group">
+      <label>Contraseña:</label>
+      <input type="password" id="inputPasswordMant" placeholder="Ingresa la contraseña" onkeydown="if(event.key==='Enter')confirmarDesactivarMant()">
+    </div>
+    <div style="display:flex; gap:10px; margin-top:1rem;">
+      <button class="btn secondary-btn" style="flex:1;" onclick="cerrarModal('modalDesactivarMant')">Cancelar</button>
+      <button class="btn primary-btn" style="flex:1;" onclick="confirmarDesactivarMant()"><i class="fas fa-unlock"></i> Desactivar</button>
+    </div>
+  </div>
+</div>
 <div id="sidebarOverlay" class="sidebar-overlay"></div>
 <button class="mobile-toggle" id="mobileToggle"><i class="fas fa-bars"></i></button>
 
@@ -320,6 +367,12 @@
       <a href="#" data-section="soporte"><i class="fas fa-headset"></i> Soporte</a>
       <a href="#" data-section="configuracion"><i class="fas fa-cog"></i> Ajustes</a>
     </nav>
+    <div style="padding: 0.75rem 0.5rem; margin-top: auto; border-top: 1px solid rgba(255,255,255,0.08);">
+      <button onclick="cerrarSesion()" style="width:100%; display:flex; align-items:center; gap:12px; padding:12px 16px; background:rgba(220,53,69,0.15); border:1px solid rgba(220,53,69,0.3); border-radius:var(--radius); color:#f87171; font-weight:600; font-size:0.9rem; cursor:pointer; transition:background 0.2s;"
+        onmouseover="this.style.background='rgba(220,53,69,0.28)'" onmouseout="this.style.background='rgba(220,53,69,0.15)'">
+        <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
+      </button>
+    </div>
   </aside>
 
   <main class="main-content">
@@ -351,7 +404,10 @@
             <p class="text-muted text-center" style="margin-top:3rem;">Carrito vacío</p>
           </div>
           <div class="pago-caja">
-            <div style="display:flex; justify-content:space-between; font-size:1.4rem; font-weight:800; margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.95rem; font-weight:600; margin-bottom:6px; color:var(--text-muted);">
+              <span>Subtotal:</span><span id="c_subtotal">$0.00</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:1.4rem; font-weight:800; margin-bottom:12px; padding-top:8px; border-top:2px solid var(--border-color);">
               <span>Total a pagar:</span><span id="c_total" data-val="0">$0.00</span>
             </div>
             <div class="form-group" style="margin-bottom:8px;">
@@ -487,16 +543,70 @@
     
     <section id="configuracion" class="content-section">
       <h2><i class="fas fa-cog"></i> Ajustes del Sistema</h2>
-      <div style="display:flex; gap:12px; margin-top:1.5rem; flex-wrap:wrap;">
-        <button class="btn secondary-btn" onclick="document.body.classList.toggle('dark-mode')"><i class="fas fa-moon"></i> Modo Oscuro</button>
-        <button class="btn danger-btn" onclick="iniciarBaseDeDatosRemota()"><i class="fas fa-server"></i> Inicializar Hojas BD</button>
+
+      <div style="display:grid; gap:1.25rem; margin-top:1.5rem; max-width:600px;">
+
+        <!-- Apariencia -->
+        <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg); padding:1.25rem;">
+          <h4 style="margin-bottom:1rem; color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em;">Apariencia</h4>
+          <button class="btn secondary-btn" onclick="document.body.classList.toggle('dark-mode')">
+            <i class="fas fa-moon"></i> Modo Oscuro
+          </button>
+        </div>
+
+        <!-- Mantenimiento -->
+        <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg); padding:1.25rem;">
+          <h4 style="margin-bottom:0.5rem; color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em;">Modo Mantenimiento</h4>
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">Bloquea el acceso al sistema mostrando una pantalla de mantenimiento. Se desactiva con contraseña (doble clic en la pantalla).</p>
+          <button class="btn" style="background:#ffc107; color:#000; font-weight:700;" onclick="activarMantenimiento()">
+            <i class="fas fa-triangle-exclamation"></i> Activar Mantenimiento
+          </button>
+        </div>
+
+        <!-- Base de datos -->
+        <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg); padding:1.25rem;">
+          <h4 style="margin-bottom:0.5rem; color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em;">Base de Datos</h4>
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">Inicializar crea las hojas si no existen y sincroniza la estructura. No borra datos existentes.</p>
+          <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <button class="btn primary-btn" onclick="iniciarBaseDeDatosRemota()">
+              <i class="fas fa-server"></i> Inicializar / Sincronizar BD
+            </button>
+            <button class="btn danger-btn" onclick="pedirPasswordBorrarBD()">
+              <i class="fas fa-trash-alt"></i> Borrar Base de Datos
+            </button>
+          </div>
+        </div>
+
       </div>
-      <hr style="margin:2rem 0; border-color:var(--border-color);">
-      <div>
-        <p style="font-size:0.88rem; color:var(--text-muted); margin-bottom:1rem;">¿Deseas salir de la sesión actual?</p>
-        <button class="btn danger-btn" style="background:#dc3545; border-color:#dc3545;" onclick="cerrarSesion()">
-          <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
-        </button>
+
+        <!-- Cerrar Sesión -->
+        <div style="background:var(--bg-card); border:1px solid rgba(220,53,69,0.35); border-radius:var(--radius-lg); padding:1.25rem;">
+          <h4 style="margin-bottom:0.5rem; color:#dc3545; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em;"><i class="fas fa-sign-out-alt"></i> Sesión</h4>
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">Cierra la sesión actual y regresa a la pantalla de inicio.</p>
+          <button class="btn danger-btn" style="background:#dc3545; border-color:#dc3545;" onclick="cerrarSesion()">
+            <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Modal contraseña borrar BD -->
+      <div id="modalBorrarBD" class="modal hidden">
+        <div class="modal-content" style="max-width:380px;">
+          <div class="modal-header">
+            <h3 style="margin:0; color:var(--danger-color);"><i class="fas fa-exclamation-triangle"></i> Borrar Base de Datos</h3>
+            <button class="modal-close" onclick="cerrarModal('modalBorrarBD')"><i class="fas fa-times"></i></button>
+          </div>
+          <p style="margin-bottom:1rem; font-size:0.9rem; color:var(--text-muted);">Esta acción borrará <b>todos los datos</b> (ventas, productos, categorías, compras). Es irreversible.</p>
+          <div class="form-group">
+            <label>Contraseña de confirmación:</label>
+            <input type="password" id="inputPasswordBorrar" placeholder="Ingresa la contraseña" onkeydown="if(event.key==='Enter')confirmarBorrarBD()">
+          </div>
+          <div style="display:flex; gap:10px; margin-top:1rem;">
+            <button class="btn secondary-btn" style="flex:1;" onclick="cerrarModal('modalBorrarBD')">Cancelar</button>
+            <button class="btn danger-btn" style="flex:1;" onclick="confirmarBorrarBD()"><i class="fas fa-trash-alt"></i> Borrar Todo</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -1045,6 +1155,7 @@
 
     if (!carrito.length) {
       el.innerHTML = '<p class="text-muted text-center" style="margin-top:3rem;">Carrito vacío</p>';
+      document.getElementById('c_subtotal').textContent = '$0.00';
       document.getElementById('c_total').textContent = '$0.00';
       document.getElementById('c_total').dataset.val = '0';
       badge.classList.add('hidden');
@@ -1076,6 +1187,7 @@
       </div>`;
     }).join('');
     
+    document.getElementById('c_subtotal').textContent = `$${total.toFixed(2)}`;
     document.getElementById('c_total').dataset.val = total;
     document.getElementById('c_total').textContent = `$${total.toFixed(2)}`;
     calcularVueltoCambio();
@@ -1099,12 +1211,16 @@
     const btn = document.getElementById('btnFinalizarVenta');
     btn.disabled = true;
     
+    const totalCarrito = parseFloat(document.getElementById('c_total').dataset.val) || 0;
+    const pagoCon = parseFloat(document.getElementById('v_pago_con').value) || 0;
+    const cambio = pagoCon >= totalCarrito ? parseFloat((pagoCon - totalCarrito).toFixed(2)) : 0;
+
     const payload = {
       action: 'registrarVenta',
       usuario: 'admin',
       cliente_nombre: document.getElementById('v_cliente').value || '',
-      pago_con: parseFloat(document.getElementById('v_pago_con').value) || 0,
-      cambio: parseFloat(document.getElementById('v_cambio').value.replace('$', '')) || 0,
+      pago_con: pagoCon,
+      cambio: cambio,
       items: carrito
     };
     
@@ -1115,6 +1231,7 @@
         carrito = [];
         renderCarrito();
         document.getElementById('v_pago_con').value = '';
+        document.getElementById('v_cambio').value = '';
         document.getElementById('v_cliente').value = '';
         await loadInventario(); 
       } else { showToast(res.message, 'error'); }
@@ -1142,6 +1259,23 @@
       const payload = { action: 'registrarCompra', producto_id: document.getElementById('co_prod_id').value, cantidad: document.getElementById('co_cantidad').value, precio_compra: document.getElementById('co_precio').value, usuario: 'admin' };
       const res = await fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify(payload) }).then(r => r.json());
       if (res.status === 'success') { dispararAccionExitosa('Ingreso registrado.'); e.target.reset(); await loadInventario(); }
+    });
+
+    document.getElementById('soporteForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const titulo = document.getElementById('tk_titulo').value.trim();
+      const desc   = document.getElementById('tk_descripcion').value.trim();
+      if (!titulo) return showToast('El título es obligatorio.', 'warning');
+      const btn = e.target.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      try {
+        const res = await fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify({ action:'crearTicketSoporte', usuario:'admin', titulo, descripcion: desc }) }).then(r => r.json());
+        if (res.status === 'success') {
+          dispararAccionExitosa('¡Ticket enviado correctamente!');
+          e.target.reset();
+        } else { showToast(res.message || 'Error al enviar ticket.', 'error'); }
+      } catch(err) { showToast('Error de conexión con el servidor.', 'error'); }
+      btn.disabled = false;
     });
   }
 
@@ -1188,7 +1322,7 @@
       reporteActualDatos = ventas;
 
       // ── Resumen Cards ──
-      const totalVentas = ventas.reduce((s, v) => s + (parseFloat(v.total) || 0), 0);
+      const totalVentas = ventas.reduce((s, v) => s + (parseFloat(v.total) || parseFloat(v.subtotal) || 0), 0);
       const totalDescuentos = ventas.reduce((s, v) => s + (parseFloat(v.descuento) || 0), 0);
 
       // Agrupar por día para resumen diario
@@ -1196,7 +1330,7 @@
       ventas.forEach(v => {
         const dia = new Date(v.fecha).toLocaleDateString('es-SV');
         if (!porDia[dia]) porDia[dia] = { total: 0, tickets: 0 };
-        porDia[dia].total += parseFloat(v.total) || 0;
+        porDia[dia].total += parseFloat(v.total) || parseFloat(v.subtotal) || 0;
         porDia[dia].tickets++;
       });
       const diasConVentas = Object.keys(porDia).length;
@@ -1208,27 +1342,24 @@
         <div class="resumen-card"><div class="val">${ventas.length}</div><div class="lbl">Tickets / Ventas</div></div>
         <div class="resumen-card"><div class="val">$${promedioTicket.toFixed(2)}</div><div class="lbl">Promedio por venta</div></div>
         <div class="resumen-card"><div class="val">${diasConVentas}</div><div class="lbl">Días con actividad</div></div>
-        <div class="resumen-card"><div class="val">$${totalDescuentos.toFixed(2)}</div><div class="lbl">Total en descuentos</div></div>
       `;
 
       // ── Tabla ──
-      document.getElementById('repHead').innerHTML = '<tr><th>ID Venta</th><th>Fecha y Hora</th><th>Cliente</th><th>Subtotal</th><th>Descuento</th><th>Total</th></tr>';
+      document.getElementById('repHead').innerHTML = '<tr><th>ID Venta</th><th>Fecha y Hora</th><th>Cliente</th><th>Subtotal</th><th>Total</th></tr>';
       document.getElementById('repBody').innerHTML = ventas.length
         ? ventas.map(v => {
-            const f = new Date(v.fecha);
-            const sub  = parseFloat(v.subtotal) || parseFloat(v.total) || 0;
-            const desc = parseFloat(v.descuento) || 0;
-            const tot  = parseFloat(v.total) || sub;
+            const f   = new Date(v.fecha);
+            const sub = parseFloat(v.subtotal) || parseFloat(v.total) || 0;
+            const tot = parseFloat(v.total) || sub;
             return `<tr>
               <td><code style="font-size:0.75rem;">${v.id.slice(-8)}</code></td>
               <td>${f.toLocaleDateString('es-SV')} ${f.toLocaleTimeString('es-SV', {hour:'2-digit',minute:'2-digit'})}</td>
               <td>${v.cliente_nombre || 'N/A'}</td>
               <td>$${sub.toFixed(2)}</td>
-              <td style="color:var(--danger-color);">-$${desc.toFixed(2)}</td>
               <td><b style="color:var(--success-color);">$${tot.toFixed(2)}</b></td>
             </tr>`;
           }).join('')
-        : '<tr><td colspan="6" class="text-center text-muted" style="padding:2rem;">Sin ventas en este período.</td></tr>';
+        : '<tr><td colspan="5" class="text-center text-muted" style="padding:2rem;">Sin ventas en este período.</td></tr>';
 
       if (ventas.length) document.getElementById('exportBtns').style.display = 'flex';
 
@@ -1269,7 +1400,7 @@
       const titulo = `Reporte de Ventas ${labels[reporteActualPeriodo] || ''}`;
       const fechaGen = new Date().toLocaleDateString('es-SV', { year:'numeric', month:'long', day:'numeric' });
 
-      // ── Calcular totales ANTES de usarlos en cualquier lado ──
+      // ── Calcular TODOS los totales primero (evita errores de referencia) ──
       const totalVentas = reporteActualDatos.reduce((s, v) => s + (parseFloat(v.total) || parseFloat(v.subtotal) || 0), 0);
       const totalDesc   = reporteActualDatos.reduce((s, v) => s + (parseFloat(v.descuento) || 0), 0);
       const promedio    = reporteActualDatos.length ? totalVentas / reporteActualDatos.length : 0;
@@ -1297,11 +1428,12 @@
       doc.setFontSize(9); doc.setFont('helvetica', 'bold');
       doc.text('RESUMEN DEL PERÍODO', 14, 36);
       doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
       const resumenData = [
-        ['Total Recaudado',   `$${totalVentas.toFixed(2)}`],
-        ['Total de Ventas',   `${reporteActualDatos.length} tickets`],
-        ['Promedio por Venta',`$${promedio.toFixed(2)}`],
-        ['Total Descuentos',  `$${totalDesc.toFixed(2)}`],
+        ['Total Recaudado',    `$${totalVentas.toFixed(2)}`],
+        ['Total de Ventas',    `${reporteActualDatos.length} tickets`],
+        ['Promedio por Venta', `$${promedio.toFixed(2)}`],
+        ['Total Descuentos',   `$${totalDesc.toFixed(2)}`],
       ];
       doc.autoTable({
         startY: 38,
@@ -1323,16 +1455,14 @@
       Object.keys(porDia).sort().forEach(dia => {
         const ventas = porDia[dia];
         const totalDia = ventas.reduce((s, v) => s + (parseFloat(v.total) || parseFloat(v.subtotal) || 0), 0);
-        bodyRows.push([{ content: `📅 ${dia} — ${ventas.length} venta(s) — Total: $${totalDia.toFixed(2)}`, colSpan: 5, styles: { fontStyle: 'bold', fillColor: [235, 242, 255], textColor: [5, 93, 226] } }]);
+        bodyRows.push([{ content: `📅 ${dia} — ${ventas.length} venta(s) — Total: $${totalDia.toFixed(2)}`, colSpan: 4, styles: { fontStyle: 'bold', fillColor: [235, 242, 255], textColor: [5, 93, 226] } }]);
         ventas.forEach(v => {
           const f   = new Date(v.fecha);
-          const sub = parseFloat(v.subtotal) || parseFloat(v.total) || 0;
-          const tot = parseFloat(v.total) || sub;
+          const tot = parseFloat(v.total) || parseFloat(v.subtotal) || 0;
           bodyRows.push([
             f.toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' }),
             v.id.slice(-10),
             v.cliente_nombre || 'N/A',
-            v.descuento ? `-$${parseFloat(v.descuento).toFixed(2)}` : '$0.00',
             `$${tot.toFixed(2)}`,
           ]);
         });
@@ -1340,14 +1470,14 @@
 
       doc.autoTable({
         startY: yPos,
-        head: [['Hora', 'ID Venta', 'Cliente', 'Descuento', 'Total']],
+        head: [['Hora', 'ID Venta', 'Cliente', 'Total']],
         body: bodyRows,
         theme: 'striped',
         headStyles: { fillColor: [9, 25, 51], fontSize: 8, fontStyle: 'bold' },
         styles: { fontSize: 8, cellPadding: 3 },
         columnStyles: {
-          0: { cellWidth: 18 }, 1: { cellWidth: 30 }, 2: { cellWidth: 60 },
-          3: { cellWidth: 22, halign: 'right' }, 4: { cellWidth: 25, halign: 'right', fontStyle: 'bold' }
+          0: { cellWidth: 18 }, 1: { cellWidth: 35 }, 2: { cellWidth: 80 },
+          3: { cellWidth: 30, halign: 'right', fontStyle: 'bold' }
         },
         margin: { left: 14, right: 14 },
       });
@@ -1368,18 +1498,17 @@
     }
   }
 
-  // ── EXPORTAR EXCEL (diseño creativo) ────────────────────────────
+  // ── EXPORTAR EXCEL (diseño creativo, 3 hojas) ───────────────────
   function exportarExcel() {
     if (!reporteActualDatos.length) return showToast('No hay datos para exportar.', 'warning');
     try {
       const wb = XLSX.utils.book_new();
       const labels = { hoy: 'Diario', semana: 'Semanal', mes: 'Mensual' };
       const periodoLabel = labels[reporteActualPeriodo] || 'Período';
-      const hoy = new Date().toLocaleDateString('es-SV', { year:'numeric', month:'long', day:'numeric' });
+      const fechaGen = new Date().toLocaleDateString('es-SV', { year:'numeric', month:'long', day:'numeric' });
 
-      // ── Calcular datos ──
+      // ── Calcular totales ──
       const totalVentas = reporteActualDatos.reduce((s, v) => s + (parseFloat(v.total) || parseFloat(v.subtotal) || 0), 0);
-      const totalDesc   = reporteActualDatos.reduce((s, v) => s + (parseFloat(v.descuento) || 0), 0);
       const promedio    = reporteActualDatos.length ? totalVentas / reporteActualDatos.length : 0;
 
       const porDia = {};
@@ -1390,50 +1519,35 @@
         porDia[dia].total += parseFloat(v.total) || parseFloat(v.subtotal) || 0;
       });
 
-      // ════════════════════════════════════════════════════
-      // HOJA 1 — RESUMEN EJECUTIVO
-      // ════════════════════════════════════════════════════
-      const wsR = XLSX.utils.aoa_to_sheet([]);
-
-      // Título principal
-      XLSX.utils.sheet_add_aoa(wsR, [
-        [''],
-        ['  ERP POS LITE — REPORTE ' + periodoLabel.toUpperCase()],
-        ['  ' + hoy],
-        [''],
-        ['  INDICADORES DEL PERÍODO'],
-        ['  Indicador', 'Valor'],
-        ['  Total Recaudado', totalVentas],
-        ['  Número de Ventas', reporteActualDatos.length],
-        ['  Promedio por Ticket', promedio],
-        ['  Total en Descuentos', totalDesc],
-        [''],
-        ['  VENTAS POR DÍA'],
-        ['  Fecha', 'N° Ventas', 'Total del Día', 'Promedio'],
-        ...Object.keys(porDia).sort().map(d => [
-          '  ' + d,
-          porDia[d].ventas,
-          porDia[d].total,
-          porDia[d].ventas ? porDia[d].total / porDia[d].ventas : 0
-        ]),
-        [''],
-        ['  TOTAL', reporteActualDatos.length, totalVentas, promedio],
-      ]);
-
-      wsR['!cols'] = [{ wch: 32 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
-      wsR['!rows'] = [{ hpt: 8 }, { hpt: 26 }, { hpt: 16 }];
-
-      // Estilos clave (requieren sheetjs-style o se aplican como metadata)
-      const titleCell = wsR['B2'] || (wsR['B2'] = { t: 's' });
-      titleCell.s = { font: { bold: true, sz: 16, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '091933' } }, alignment: { vertical: 'center' } };
-
+      // ═══════════════════════════════════════
+      // HOJA 1 — 📊 Resumen Ejecutivo
+      // ═══════════════════════════════════════
+      const resumenRows = [
+        ['ERP POS LITE — Reporte de Ventas ' + periodoLabel, '', ''],
+        ['Generado el:', fechaGen, ''],
+        ['', '', ''],
+        ['▌ INDICADORES DEL PERÍODO', '', ''],
+        ['Indicador', 'Valor', ''],
+        ['Total Recaudado ($)', totalVentas, ''],
+        ['Número de Ventas', reporteActualDatos.length, ''],
+        ['Promedio por Ticket ($)', promedio, ''],
+        ['Días con actividad', Object.keys(porDia).length, ''],
+        ['', '', ''],
+        ['▌ RESUMEN POR DÍA', '', ''],
+        ['Fecha', 'N° Ventas', 'Total del Día ($)'],
+        ...Object.keys(porDia).sort().map(d => [d, porDia[d].ventas, porDia[d].total]),
+        ['', '', ''],
+        ['TOTAL GENERAL', reporteActualDatos.length, totalVentas],
+      ];
+      const wsR = XLSX.utils.aoa_to_sheet(resumenRows);
+      wsR['!cols'] = [{ wch: 30 }, { wch: 22 }, { wch: 18 }];
       XLSX.utils.book_append_sheet(wb, wsR, '📊 Resumen');
 
-      // ════════════════════════════════════════════════════
-      // HOJA 2 — DETALLE DE VENTAS
-      // ════════════════════════════════════════════════════
-      const encabezado = [['#', 'ID Venta', 'Fecha', 'Hora', 'Cliente', 'Subtotal ($)', 'Descuento ($)', 'Total ($)', 'Pagó con ($)', 'Cambio ($)', 'Estado']];
-      const filas = reporteActualDatos.map((v, i) => {
+      // ═══════════════════════════════════════
+      // HOJA 2 — 🧾 Detalle de Ventas
+      // ═══════════════════════════════════════
+      const encHead = [['#', 'ID Venta', 'Fecha', 'Hora', 'Cliente', 'Subtotal ($)', 'Total ($)', 'Pagó con ($)', 'Cambio ($)', 'Estado']];
+      const encBody = reporteActualDatos.map((v, i) => {
         const f   = new Date(v.fecha);
         const sub = parseFloat(v.subtotal) || parseFloat(v.total) || 0;
         const tot = parseFloat(v.total) || sub;
@@ -1441,55 +1555,46 @@
           i + 1,
           v.id.slice(-12),
           f.toLocaleDateString('es-SV'),
-          f.toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' }),
+          f.toLocaleTimeString('es-SV', { hour:'2-digit', minute:'2-digit' }),
           v.cliente_nombre || 'N/A',
           sub,
-          parseFloat(v.descuento) || 0,
           tot,
           parseFloat(v.pago_con) || 0,
           parseFloat(v.cambio) || 0,
           v.estado || 'completada',
         ];
       });
-
       // Fila de totales al final
-      const filaTotales = ['', 'TOTALES', '', '', '',
+      const filaTot = ['', 'TOTALES', '', '', '',
         reporteActualDatos.reduce((s,v)=>s+(parseFloat(v.subtotal)||parseFloat(v.total)||0),0),
-        totalDesc,
-        totalVentas,
-        '', '', ''
+        totalVentas, '', '', ''
       ];
-
-      const wsD = XLSX.utils.aoa_to_sheet([...encabezado, ...filas, [], filaTotales]);
-      wsD['!cols'] = [
-        {wch:5}, {wch:16}, {wch:13}, {wch:8}, {wch:22},
-        {wch:14}, {wch:14}, {wch:14}, {wch:13}, {wch:12}, {wch:13}
-      ];
-      wsD['!freeze'] = { xSplit: 0, ySplit: 1 }; // Fijar encabezado
+      const wsD = XLSX.utils.aoa_to_sheet([...encHead, ...encBody, [], filaTot]);
+      wsD['!cols'] = [{wch:5},{wch:16},{wch:13},{wch:8},{wch:22},{wch:14},{wch:14},{wch:13},{wch:12},{wch:13}];
       XLSX.utils.book_append_sheet(wb, wsD, '🧾 Detalle Ventas');
 
-      // ════════════════════════════════════════════════════
-      // HOJA 3 — POR DÍA (pivot limpio)
-      // ════════════════════════════════════════════════════
+      // ═══════════════════════════════════════
+      // HOJA 3 — 📅 Ventas por Día (pivot)
+      // ═══════════════════════════════════════
       const diasRows = [
-        ['Fecha', 'Ventas', 'Total del Día ($)', 'Promedio ($)', '% del Total'],
+        ['Fecha', 'N° Ventas', 'Total del Día ($)', 'Promedio ($)', '% del Total'],
         ...Object.keys(porDia).sort().map(d => [
           d,
           porDia[d].ventas,
           porDia[d].total,
           porDia[d].ventas ? porDia[d].total / porDia[d].ventas : 0,
-          totalVentas ? ((porDia[d].total / totalVentas) * 100).toFixed(1) + '%' : '0%'
+          totalVentas ? ((porDia[d].total / totalVentas) * 100).toFixed(1) + '%' : '0%',
         ]),
         [],
         ['TOTAL', reporteActualDatos.length, totalVentas, promedio, '100%'],
       ];
       const wsP = XLSX.utils.aoa_to_sheet(diasRows);
-      wsP['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 12 }];
+      wsP['!cols'] = [{wch:14},{wch:12},{wch:18},{wch:16},{wch:12}];
       XLSX.utils.book_append_sheet(wb, wsP, '📅 Por Día');
 
       const nombreArchivo = `Reporte_Ventas_${periodoLabel}_${new Date().toISOString().slice(0,10)}.xlsx`;
       XLSX.writeFile(wb, nombreArchivo);
-      showToast('Excel generado con 3 hojas correctamente.', 'success');
+      showToast('Excel con 3 hojas generado correctamente.', 'success');
     } catch(e) {
       showToast('Error al generar Excel: ' + e.message, 'error');
     }
@@ -1508,9 +1613,147 @@
   }
 
   async function iniciarBaseDeDatosRemota() {
-    const res = await fetch(`${SCRIPT_URL}?action=iniciar`).then(r => r.json());
-    if(res.status==='success') dispararAccionExitosa('¡Hojas de cálculo vinculadas!');
+    showSpinner('Inicializando base de datos...');
+    try {
+      const res = await fetch(`${SCRIPT_URL}?action=iniciar`).then(r => r.json());
+      if (res.status === 'success') {
+        dispararAccionExitosa('¡BD inicializada y sincronizada correctamente!');
+        await loadInitialData();
+      } else {
+        showToast(res.message || 'Error al inicializar.', 'error');
+      }
+    } catch(e) { showToast('Error de conexión.', 'error'); }
+    hideSpinner();
   }
+
+  function pedirPasswordBorrarBD() {
+    document.getElementById('inputPasswordBorrar').value = '';
+    document.getElementById('modalBorrarBD').classList.remove('hidden');
+    setTimeout(() => document.getElementById('inputPasswordBorrar').focus(), 150);
+  }
+
+  async function confirmarBorrarBD() {
+    const pass = document.getElementById('inputPasswordBorrar').value;
+    if (pass !== '747') {
+      showToast('Contraseña incorrecta.', 'error');
+      document.getElementById('inputPasswordBorrar').value = '';
+      document.getElementById('inputPasswordBorrar').focus();
+      return;
+    }
+    cerrarModal('modalBorrarBD');
+    showSpinner('Borrando base de datos...');
+    try {
+      const res = await fetch(`${SCRIPT_URL}?action=resetear`).then(r => r.json());
+      if (res.status === 'success') {
+        dispararAccionExitosa('¡Base de datos borrada y recreada desde cero!');
+        inventarioGlobal = [];
+        categoriasGlobal = [];
+        carrito = [];
+        renderCarrito();
+        await loadInitialData();
+      } else {
+        showToast(res.message || 'Error al borrar la BD.', 'error');
+      }
+    } catch(e) { showToast('Error de conexión.', 'error'); }
+    hideSpinner();
+  }
+
+  // ══ MODO MANTENIMIENTO ══════════════════════════════════════════
+  // El estado vive en el servidor (PropertiesService), no en el navegador.
+  // Cualquier dispositivo que abra el sistema verá el modo mantenimiento.
+
+  function mostrarPantallaMantenimiento() {
+    const screen = document.getElementById('mantenimientoScreen');
+    screen.style.display = 'flex';
+    screen.ondblclick = pedirDesactivarMant;
+
+    // Soporte táctil: doble toque en el icono amarillo (móvil/tablet)
+    const icono = document.getElementById('mantIcono');
+    if (icono && !icono._doubleTapBound) {
+      icono._doubleTapBound = true;
+      let lastTap = 0;
+      icono.addEventListener('touchend', function(e) {
+        const now = Date.now();
+        if (now - lastTap < 350) {
+          e.preventDefault();
+          pedirDesactivarMant();
+        }
+        lastTap = now;
+      }, { passive: false });
+    }
+  }
+
+  function ocultarPantallaMantenimiento() {
+    document.getElementById('mantenimientoScreen').style.display = 'none';
+  }
+
+  async function activarMantenimiento() {
+    showSpinner('Activando mantenimiento...');
+    try {
+      const res = await fetch(`${SCRIPT_URL}?action=activarMantenimiento`).then(r => r.json());
+      hideSpinner();
+      if (res.status === 'success') {
+        mostrarPantallaMantenimiento();
+        showToast('Modo mantenimiento activado.', 'warning');
+      } else {
+        showToast(res.message || 'Error al activar.', 'error');
+      }
+    } catch(e) { hideSpinner(); showToast('Error de conexión.', 'error'); }
+  }
+
+  function pedirDesactivarMant() {
+    document.getElementById('inputPasswordMant').value = '';
+    document.getElementById('modalDesactivarMant').classList.remove('hidden');
+    setTimeout(() => document.getElementById('inputPasswordMant').focus(), 150);
+  }
+
+  async function confirmarDesactivarMant() {
+    const pass = document.getElementById('inputPasswordMant').value;
+    if (pass !== '747') {
+      showToast('Contraseña incorrecta.', 'error');
+      document.getElementById('inputPasswordMant').value = '';
+      document.getElementById('inputPasswordMant').focus();
+      return;
+    }
+    cerrarModal('modalDesactivarMant');
+    showSpinner('Desactivando mantenimiento...');
+    try {
+      const res = await fetch(`${SCRIPT_URL}?action=desactivarMantenimiento`).then(r => r.json());
+      hideSpinner();
+      if (res.status === 'success') {
+        ocultarPantallaMantenimiento();
+        dispararAccionExitosa('Modo mantenimiento desactivado.');
+        await loadInitialData();
+      } else {
+        showToast(res.message || 'Error al desactivar.', 'error');
+      }
+    } catch(e) { hideSpinner(); showToast('Error de conexión.', 'error'); }
+  }
+
+  // Interceptor global: si el servidor responde con status:'mantenimiento'
+  // en cualquier fetch, muestra la pantalla automáticamente
+  const _fetchOriginal = window.fetch;
+  window.fetch = async function(...args) {
+    const res = await _fetchOriginal(...args);
+    const clone = res.clone();
+    try {
+      const json = await clone.json();
+      if (json && json.status === 'mantenimiento') {
+        mostrarPantallaMantenimiento();
+      }
+    } catch(e) {}
+    return res;
+  };
+
+  // Al cargar: consultar estado del servidor
+  document.addEventListener('DOMContentLoaded', async () => {
+    try {
+      const res = await _fetchOriginal(`${SCRIPT_URL}?action=getEstado`).then(r => r.json());
+      if (res.mantenimiento === true) {
+        mostrarPantallaMantenimiento();
+      }
+    } catch(e) {}
+  });
 </script>
 </body>
 </html>
