@@ -57,7 +57,7 @@
     .badge { display:inline-flex; align-items:center; justify-content:center; background:var(--primary-color); color:#fff; border-radius:20px; font-size:.72rem; font-weight:700; min-width:22px; height:22px; padding:0 8px; }
 
     .modal { position:fixed; inset:0; background:rgba(0,0,0,.7); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; z-index:2000; padding:1rem; }
-    .modal-content { background:var(--bg-card); border-radius:var(--radius-lg); width:100%; max-width:420px; padding:1.25rem; text-align:center; }
+    .modal-content { background:var(--bg-card); border-radius:var(--radius-lg); width:100%; max-width:420px; padding:1.25rem; text-align:center; max-height:90vh; overflow-y:auto; }
     .modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; font-weight:bold; }
     .modal-close { background:none; border:none; font-size:1.3rem; cursor:pointer; color:var(--text-muted); }
     .hidden { display:none !important; }
@@ -77,7 +77,14 @@
     .actions-bar { display:flex; gap:10px; flex-wrap:wrap; margin-top:1.25rem; }
     .btn-icon-mini { width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; border:none; cursor:pointer; background:rgba(220,53,69,.1); color:var(--danger-color); }
 
-    @media (max-width:640px) { .form-grid { grid-template-columns:1fr; } }
+    @media (max-width:640px) {
+      .form-grid { grid-template-columns:1fr; }
+      .modal-content { max-width:100% !important; margin:0 .5rem; padding:1rem; }
+      /* Limitamos aún más la altura del visor de cámara en móvil para que
+         el modal completo (controles + botón cerrar) quepa en pantalla sin
+         que la cámara tape toda la vista */
+      #interactiveScanner { height: min(38vh, 260px) !important; }
+    }
   </style>
 </head>
 <body>
@@ -156,9 +163,6 @@
       <!-- Estado/diagnóstico del arranque de cámara -->
       <div id="scannerStatusMsg" style="display:none; font-size:.8rem; padding:8px 10px; border-radius:6px; margin-bottom:8px; text-align:left;"></div>
 
-      <!-- Indicador de modo continuo: muestra el último código leído -->
-      <div id="scannerContinuoIndicador" style="display:none; font-size:.8rem; padding:8px 10px; border-radius:6px; margin-bottom:8px; text-align:left; background:rgba(40,167,69,0.12); color:var(--success-color); font-weight:700;"></div>
-
       <!-- Controles de imagen para webcam de baja calidad -->
       <div id="scannerControls" style="display:none; margin-bottom:8px; background:rgba(0,0,0,0.06); border-radius:8px; padding:8px 10px; text-align:left;">
         <div style="font-size:.72rem; font-weight:700; color:var(--text-muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em;">🔧 Mejoras de imagen</div>
@@ -187,12 +191,7 @@
         <button onclick="resetearFiltros()" style="margin-top:6px; font-size:.72rem; background:none; border:none; color:var(--primary-color); cursor:pointer; padding:0; font-weight:600;">↺ Restablecer</button>
       </div>
 
-      <div id="interactiveScanner" style="width:100%; min-height:250px; background:#000; border-radius:8px; overflow:hidden; margin:0 auto .5rem;"></div>
-
-      <!-- Tip de ayuda: modo continuo -->
-      <div id="scannerTip" style="font-size:.75rem; color:var(--text-muted); margin-bottom:.75rem; padding:6px 10px; background:rgba(5,93,226,0.07); border-radius:6px; text-align:left;">
-        💡 <b>Modo continuo:</b> cada código se registra automáticamente con un bip — no necesitas tocar ningún botón. Solo escanea uno tras otro. Si la webcam no enfoca bien, usa "Capturar foto".
-      </div>
+      <div id="interactiveScanner" style="width:100%; height:min(46vh, 300px); background:#000; border-radius:8px; overflow:hidden; margin:0 auto .5rem; display:flex; align-items:center; justify-content:center;"></div>
 
       <!-- Modo foto: captura manual de respaldo para webcams que no enfocan en movimiento -->
       <div style="display:flex; gap:8px; margin-bottom:.5rem;">
@@ -218,11 +217,6 @@
   let availableCameras = [];
   let selectedCameraId = null;
   let torchActivo = false;
-  // Debounce para modo continuo: evita registrar el mismo código varias
-  // veces seguidas mientras la cámara lo sigue viendo en cuadros sucesivos.
-  let ultimoCodigoLeido = null;
-  let ultimoCodigoTimestamp = 0;
-  const DEBOUNCE_MISMO_CODIGO_MS = 1800;
 
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   let audioCtx;
@@ -370,7 +364,7 @@
     } catch(e) { showToast('No se pudo conectar con el servidor para cargar categorías.', 'error'); }
   }
 
-  // ── ESCÁNER DE CÁMARA (MEJORADO, MODO CONTINUO) ─────────────────
+  // ── ESCÁNER DE CÁMARA (MEJORADO, UNA LECTURA POR VEZ) ─────────────
   //
   // IMPORTANTE — por qué el LED prendía y se apagaba sin cargar nunca:
   // Antes llamábamos a Html5Qrcode.getCameras() ANTES de start(). Esa función
@@ -387,13 +381,94 @@
   // la lista de cámaras (con el stream real ya activo y estable) para llenar
   // el selector, por si el usuario quiere cambiar de cámara manualmente.
   //
-  // MODO CONTINUO: a diferencia del escáner del POS (que escanea un código
-  // y cierra), aquí el registro es masivo: cada código detectado se vuelca
-  // automáticamente al campo "Código de Barras" y suena el bip, SIN cerrar
-  // la cámara ni requerir ningún botón — el usuario solo va presentando
-  // un código tras otro. La cámara permanece activa hasta que el usuario
-  // toca "Cerrar". Un debounce evita registrar el mismo código repetidas
-  // veces mientras la cámara lo sigue viendo en cuadros sucesivos.
+  // UNA LECTURA POR VEZ: en cuanto se detecta un código válido, se vuelca
+  // al campo "Código de Barras", suena el bip y la cámara SE CIERRA sola
+  // (igual que el escáner del POS) para que el usuario pueda completar el
+  // resto del formulario (nombre, categoría, precios) sin la cámara
+  // ocupando la pantalla. Cuando quiera escanear el siguiente producto,
+  // vuelve a tocar el botón de la cámara. El flag "escaneoResuelto" evita
+  // que el escaneo en vivo y el análisis de segundo plano procesen el
+  // mismo código dos veces si detectan casi al mismo tiempo.
+  let escaneoResuelto = false;
+  function registrarCodigoContinuo(decodedText) {
+    if (escaneoResuelto) return;
+    escaneoResuelto = true;
+
+    playBeep();
+    const input = document.getElementById('p_codigo');
+    input.value = decodedText;
+    input.style.transition = 'background-color .15s';
+    input.style.backgroundColor = 'rgba(40,167,69,0.25)';
+    setTimeout(() => { input.style.backgroundColor = ''; }, 350);
+
+    detenerCamaraEscaneo();
+    showToast('Código capturado: ' + decodedText, 'success');
+    document.getElementById('p_nombre').focus();
+  }
+
+  // ── ESCANEO MEJORADO EN SEGUNDO PLANO ──────────────────────────
+  // Los controles de brillo/contraste/nitidez/escala de grises SOLO
+  // afectan lo que el usuario VE (son un filtro CSS sobre el <video>).
+  // El motor de decodificación en vivo de html5-qrcode lee el video
+  // "crudo", sin esos filtros — por eso en webcams de baja calidad el
+  // celular decodifica al instante (mejor sensor/autoenfoque) pero la
+  // webcam no, aunque se vea perfecto en pantalla con los controles.
+  // Para arreglarlo de raíz: además del escaneo en vivo, cada pocos
+  // cientos de milisegundos capturamos un cuadro real, le aplicamos los
+  // filtros DE VERDAD (sobre un canvas, no solo visualmente) y lo
+  // decodificamos aparte. Es 100% automático, no requiere ningún botón.
+  let bgScanInterval = null;
+  let bgScanOcupado = false;
+  const BG_SCAN_INTERVALO_MS = 550;
+
+  function iniciarEscaneoMejoradoBackground() {
+    detenerEscaneoMejoradoBackground();
+    bgScanOcupado = false;
+    bgScanInterval = setInterval(ejecutarEscaneoMejoradoBackground, BG_SCAN_INTERVALO_MS);
+  }
+  function detenerEscaneoMejoradoBackground() {
+    if (bgScanInterval) { clearInterval(bgScanInterval); bgScanInterval = null; }
+    bgScanOcupado = false;
+  }
+  function ejecutarEscaneoMejoradoBackground() {
+    if (bgScanOcupado || escaneoResuelto || !html5QrScanner) return;
+    const video = document.querySelector('#interactiveScanner video');
+    if (!video || video.readyState < 2 || !video.videoWidth) return;
+    bgScanOcupado = true;
+    try {
+      const canvas = document.getElementById('scanCanvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      const b  = document.getElementById('ctrl_brightness')?.value || 1.4;
+      const c  = document.getElementById('ctrl_contrast')?.value   || 2;
+      const s  = document.getElementById('ctrl_sharpen')?.value    || 1;
+      const gr = document.getElementById('ctrl_grayscale')?.value  || 0;
+      const sharpenContrast = parseFloat(c) + parseFloat(s) * 0.3;
+      // Forzamos un mínimo de escala de grises para el análisis aunque el
+      // usuario no la haya subido: ayuda mucho al algoritmo de decodificación
+      // sin afectar lo que el usuario ve en pantalla (eso sigue siendo un
+      // filtro CSS aparte sobre el <video>).
+      ctx.filter = `brightness(${b}) contrast(${sharpenContrast}) grayscale(${Math.max(gr, 0.4)})`;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        if (!blob || escaneoResuelto) { bgScanOcupado = false; return; }
+        const file = new File([blob], 'bg.png', { type: 'image/png' });
+        const tempScanner = new Html5Qrcode('scanCanvas', false);
+        tempScanner.scanFile(file, false).then((result) => {
+          try { tempScanner.clear(); } catch(e) {}
+          bgScanOcupado = false;
+          registrarCodigoContinuo(result);
+        }).catch(() => {
+          try { tempScanner.clear(); } catch(e) {}
+          bgScanOcupado = false;
+        });
+      }, 'image/png');
+    } catch(e) {
+      bgScanOcupado = false;
+    }
+  }
+
   function activarCamaraEscaneo() {
     const modal = document.getElementById('scannerModal');
     const selectGroup = document.getElementById('cameraSelectGroup');
@@ -402,10 +477,8 @@
     selectGroup.style.display = 'none';
     select.innerHTML = '';
     selectedCameraId = null;
-    ultimoCodigoLeido = null;
-    ultimoCodigoTimestamp = 0;
+    escaneoResuelto = false;
     ocultarEstadoCamara();
-    ocultarIndicadorContinuo();
 
     iniciarLectorCamara(null);
   }
@@ -428,18 +501,6 @@
   }
   function ocultarEstadoCamara() {
     const el = document.getElementById('scannerStatusMsg');
-    if (el) { el.style.display = 'none'; el.textContent = ''; }
-  }
-
-  // Indicador del último código leído en modo continuo
-  function mostrarIndicadorContinuo(texto) {
-    const el = document.getElementById('scannerContinuoIndicador');
-    if (!el) return;
-    el.textContent = '✓ ' + texto;
-    el.style.display = 'block';
-  }
-  function ocultarIndicadorContinuo() {
-    const el = document.getElementById('scannerContinuoIndicador');
     if (el) { el.style.display = 'none'; el.textContent = ''; }
   }
 
@@ -540,33 +601,14 @@
     // Si cameraId viene con valor (el usuario eligió una cámara específica
     // en el selector): se intenta esa primero.
     const intentosConstraints = cameraId ? [
-      { deviceId: { exact: cameraId }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      { deviceId: { exact: cameraId }, width: { ideal: 1920 }, height: { ideal: 1080 } },
       { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       true, // último recurso: cualquier cámara disponible, sin restricciones
     ] : [
-      { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      { facingMode: { exact: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
       { facingMode: 'environment' },
       true, // por si el equipo no tiene cámara trasera (laptops, etc.)
     ];
-
-    // Registra un código leído en modo continuo: actualiza el campo,
-    // suena el bip y SIGUE escaneando (no cierra cámara ni modal).
-    const registrarCodigoContinuo = (decodedText) => {
-      const ahora = Date.now();
-      if (decodedText === ultimoCodigoLeido && (ahora - ultimoCodigoTimestamp) < DEBOUNCE_MISMO_CODIGO_MS) {
-        return; // mismo código visto hace muy poco: ignorar para no repetir el bip en bucle
-      }
-      ultimoCodigoLeido = decodedText;
-      ultimoCodigoTimestamp = ahora;
-
-      playBeep();
-      const input = document.getElementById('p_codigo');
-      input.value = decodedText;
-      mostrarIndicadorContinuo('Código capturado: ' + decodedText);
-      input.style.transition = 'background-color .15s';
-      input.style.backgroundColor = 'rgba(40,167,69,0.25)';
-      setTimeout(() => { input.style.backgroundColor = ''; }, 350);
-    };
 
     const onArranqueOk = () => {
       ocultarEstadoCamara();
@@ -597,6 +639,10 @@
       // Recién ahora, con el video ya activo y estable, pedimos la lista
       // de cámaras para llenar el selector.
       if (!cameraId) cargarListaCamarasParaSelector();
+
+      // Arrancamos el análisis mejorado en segundo plano (aplica los
+      // filtros DE VERDAD sobre los píxeles, no solo visualmente).
+      iniciarEscaneoMejoradoBackground();
     };
 
     intentarArrancarCamara(intentosConstraints, 0, config, registrarCodigoContinuo, onArranqueOk, null);
@@ -709,6 +755,7 @@
     const btn = document.getElementById('btnFotoCaptura');
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analizando...';
+    bgScanOcupado = true; // pausar el loop de fondo mientras se usa el mismo canvas
 
     const canvas = document.getElementById('scanCanvas');
     canvas.width  = video.videoWidth  || 640;
@@ -724,29 +771,25 @@
     try {
       canvas.toBlob(async (blob) => {
         const file = new File([blob], 'capture.png', { type: 'image/png' });
-        const scanner = new Html5Qrcode('scanCanvas');
+        const scanner = new Html5Qrcode('scanCanvas', false);
         try {
           const result = await scanner.scanFile(file, false);
           scanner.clear();
-          playBeep();
-          const input = document.getElementById('p_codigo');
-          input.value = result;
-          mostrarIndicadorContinuo('Código capturado: ' + result);
-          ultimoCodigoLeido = result;
-          ultimoCodigoTimestamp = Date.now();
-          showToast('Código capturado.', 'success');
+          registrarCodigoContinuo(result);
         } catch(err) {
           scanner.clear();
           showToast('No se detectó código en la foto. Ajusta brillo/contraste e intenta de nuevo.', 'warning');
         } finally {
           btn.disabled = false;
           btn.innerHTML = '<i class="fas fa-camera-retro"></i> Capturar foto';
+          bgScanOcupado = false;
         }
       }, 'image/png');
     } catch(e) {
       showToast('Error al capturar imagen.', 'error');
       btn.disabled = false;
       btn.innerHTML = '<i class="fas fa-camera-retro"></i> Capturar foto';
+      bgScanOcupado = false;
     }
   }
 
@@ -775,7 +818,7 @@
     safeStopScanner();
     html5QrScanner = null;
     torchActivo = false;
-    ocultarIndicadorContinuo();
+    detenerEscaneoMejoradoBackground();
     ocultarEstadoCamara();
   }
 
