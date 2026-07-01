@@ -14,6 +14,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
   
   <style>
     :root {
@@ -102,6 +104,29 @@
     .modal-content { background: var(--bg-card); border-radius: var(--radius-lg); width: 100%; max-width: 440px; padding: 1.5rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.15); max-height: 90vh; overflow-y: auto; }
     .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; font-weight: bold; }
     .modal-close { background: none; border: none; font-size: 1.35rem; cursor: pointer; color: var(--text-muted); }
+
+    /* ── VISOR DE MARKDOWN (Instructivo) ── */
+    .markdown-body { font-size: 0.9rem; line-height: 1.6; }
+    .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin: 1.25rem 0 0.6rem; line-height: 1.3; }
+    .markdown-body h1:first-child, .markdown-body h2:first-child { margin-top: 0; }
+    .markdown-body h1 { font-size: 1.4rem; border-bottom: 2px solid var(--border-color); padding-bottom: 0.4rem; }
+    .markdown-body h2 { font-size: 1.15rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem; }
+    .markdown-body h3 { font-size: 1rem; }
+    .markdown-body p, .markdown-body ul, .markdown-body ol { margin-bottom: 0.75rem; }
+    .markdown-body ul, .markdown-body ol { padding-left: 1.4rem; }
+    .markdown-body a { color: var(--primary-color); }
+    .markdown-body code { background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 4px; font-size: 0.85em; }
+    body.dark-mode .markdown-body code { background: rgba(255,255,255,0.1); }
+    .markdown-body pre { background: rgba(0,0,0,0.06); padding: 0.75rem; border-radius: 6px; overflow-x: auto; margin-bottom: 0.75rem; }
+    body.dark-mode .markdown-body pre { background: rgba(255,255,255,0.08); }
+    .markdown-body pre code { background: none; padding: 0; }
+    .markdown-body blockquote { border-left: 3px solid var(--primary-color); margin: 0 0 0.75rem; padding: 0.25rem 0.9rem; color: var(--text-muted); background: var(--primary-light); border-radius: 0 6px 6px 0; }
+    .markdown-body hr { border: none; border-top: 1px solid var(--border-color); margin: 1.25rem 0; }
+    .markdown-body table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; display: block; overflow-x: auto; }
+    .markdown-body th, .markdown-body td { border: 1px solid var(--border-color); padding: 6px 10px; text-align: left; font-size: 0.85rem; }
+    .markdown-body th { background: var(--primary-dark); color: #fff; }
+    .markdown-body tr:nth-child(even) { background: rgba(0,0,0,0.02); }
+    body.dark-mode .markdown-body tr:nth-child(even) { background: rgba(255,255,255,0.02); }
 
     .mobile-toggle { display: none; position: fixed; top: 1rem; left: 1rem; z-index: 1001; background: var(--primary-color); color: white; border: none; width: 44px; height: 44px; border-radius: var(--radius); cursor: pointer; align-items: center; justify-content: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
 
@@ -367,6 +392,18 @@
   </div>
 </div>
 
+<div id="instructivoModal" class="modal hidden">
+  <div class="modal-content" style="max-width:760px; text-align:left;">
+    <div class="modal-header">
+      <h3 style="margin:0;"><i class="fas fa-book-open"></i> Instructivo del Sistema</h3>
+      <button class="modal-close" onclick="cerrarModal('instructivoModal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div id="instructivoBody" class="markdown-body" style="max-height:70vh; overflow-y:auto; padding-right:6px;">
+      <p class="text-muted" style="text-align:center; padding:2rem;"><i class="fas fa-spinner fa-spin"></i> Cargando instructivo...</p>
+    </div>
+  </div>
+</div>
+
 <div id="modalListas" class="modal hidden">
   <div class="modal-content">
     <div class="modal-header">
@@ -621,7 +658,10 @@
       </div>
     </section>
     <section id="soporte" class="content-section">
-      <h2><i class="fas fa-headset"></i> Soporte Técnico</h2>
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+        <h2 style="margin:0;"><i class="fas fa-headset"></i> Soporte Técnico</h2>
+        <button class="btn secondary-btn" onclick="abrirInstructivo()"><i class="fas fa-book-open"></i> Instructivo</button>
+      </div>
       <div style="background:var(--bg-card); padding:1.5rem; border-radius:var(--radius-lg); border:1px solid var(--border-color); margin-top:1rem;">
         <form id="soporteForm" class="form-grid">
           <div class="form-group full-width"><label>Título:</label><input type="text" id="tk_titulo" required></div>
@@ -880,6 +920,30 @@
 
   function cerrarModal(id) {
     document.getElementById(id).classList.add('hidden');
+  }
+
+  // ── INSTRUCTIVO (Soporte) ──────────────────────────────────────
+  // Carga instructivo.md (debe estar en la misma carpeta que este
+  // archivo) y lo renderiza como HTML dentro del modal. Se cachea en
+  // memoria para no volver a pedirlo cada vez que se abre el modal.
+  let instructivoHtmlCache = null;
+  async function abrirInstructivo() {
+    document.getElementById('instructivoModal').classList.remove('hidden');
+    const body = document.getElementById('instructivoBody');
+    if (instructivoHtmlCache) { body.innerHTML = instructivoHtmlCache; return; }
+
+    body.innerHTML = '<p class="text-muted" style="text-align:center; padding:2rem;"><i class="fas fa-spinner fa-spin"></i> Cargando instructivo...</p>';
+    try {
+      const res = await fetch('instructivo.md');
+      if (!res.ok) throw new Error('No se encontró instructivo.md (HTTP ' + res.status + ')');
+      const markdown = await res.text();
+      const rawHtml = marked.parse(markdown);
+      const cleanHtml = (typeof DOMPurify !== 'undefined') ? DOMPurify.sanitize(rawHtml) : rawHtml;
+      instructivoHtmlCache = cleanHtml;
+      body.innerHTML = cleanHtml;
+    } catch (e) {
+      body.innerHTML = `<p class="text-muted">No se pudo cargar <code>instructivo.md</code>. Verifica que el archivo esté en la misma carpeta que <code>index.html</code> y que estés accediendo al sistema a través de un servidor web (no abriendo el archivo directamente con doble clic).</p>`;
+    }
   }
 
   async function handleLogin() {
