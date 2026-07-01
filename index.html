@@ -307,10 +307,19 @@
       <button class="modal-close" onclick="detenerCamaraEscaneo()"><i class="fas fa-times"></i></button>
     </div>
 
-    <div class="form-group" id="cameraSelectGroup" style="display:none; text-align:left; margin-bottom:8px;">
-      <label style="font-size:0.8rem;">Seleccionar Cámara:</label>
-      <select id="cameraSelect" onchange="cambiarCamaraEscaneo()"></select>
+    <div style="display:flex; gap:8px; align-items:flex-end; margin-bottom:8px;">
+      <div class="form-group" id="cameraSelectGroup" style="display:none; text-align:left; margin:0; flex:1;">
+        <label style="font-size:0.8rem;">Seleccionar Cámara:</label>
+        <select id="cameraSelect" onchange="cambiarCamaraEscaneo()"></select>
+      </div>
+      <button id="btnLinterna" onclick="alternarLinterna()" class="btn secondary-btn" style="display:none; height:38px; padding:0 12px;" title="Encender/apagar linterna (ayuda a la lectura automática con poca luz)">
+        <i class="fas fa-bolt"></i>
+      </button>
     </div>
+
+    <!-- Estado/diagnóstico del arranque de cámara: para que el problema sea
+         visible aquí mismo aunque el usuario no abra la consola del navegador -->
+    <div id="scannerStatusMsg" style="display:none; font-size:0.8rem; padding:8px 10px; border-radius:6px; margin-bottom:8px; text-align:left;"></div>
 
     <!-- Controles de imagen para webcam de baja calidad -->
     <div id="scannerControls" style="display:none; margin-bottom:8px; background:rgba(0,0,0,0.06); border-radius:8px; padding:8px 10px; text-align:left;">
@@ -718,6 +727,7 @@
   let currentScannerTarget = '';
   let availableCameras = [];
   let selectedCameraId = null;
+  let torchActivo = false;
   
   // ARRAYS PARA RESÚMENES
   let arrayBajas = [];
@@ -1138,54 +1148,136 @@
   }
 
   // --- LÓGICA DE ESCÁNER DE CÁMARA (NUEVA CON SELECTOR) ---
+  //
+  // IMPORTANTE — por qué el LED prendía y se apagaba sin cargar nunca:
+  // Antes llamábamos a Html5Qrcode.getCameras() ANTES de start(). Esa función
+  // hace su propio getUserMedia() interno solo para leer las etiquetas de las
+  // cámaras, y apenas termina, detiene ese stream temporal. Justo después,
+  // start() volvía a pedir la cámara. En muchas webcams (sobre todo
+  // integradas, en Windows/Edge) el hardware no alcanza a liberarse entre
+  // una solicitud y la siguiente: la primera prende el LED y lo apaga
+  // (eso es lo que se veía), y la segunda solicitud falla en silencio
+  // ("Cannot start video source") porque el dispositivo seguía ocupado.
+  //
+  // Ahora arrancamos la cámara UNA SOLA VEZ, directo con start(), sin pedir
+  // la lista antes. Solo DESPUÉS de que el video ya está corriendo pedimos
+  // la lista de cámaras (con el stream real ya activo y estable) para llenar
+  // el selector, por si el usuario quiere cambiar de cámara manualmente.
   function activarCamaraEscaneo(target) {
     currentScannerTarget = target;
     const modal = document.getElementById('scannerModal');
     const selectGroup = document.getElementById('cameraSelectGroup');
     const select = document.getElementById('cameraSelect');
-    
+
     modal.classList.remove('hidden');
-    
-    // Obtener cámaras disponibles
+    selectGroup.style.display = 'none';
+    select.innerHTML = '';
+    selectedCameraId = null;
+    ocultarEstadoCamara();
+
+    iniciarLectorCamara(null);
+  }
+
+  // Muestra/oculta un mensaje de estado DENTRO del modal (no solo un toast,
+  // que puede pasar desapercibido). Sirve para diagnosticar a simple vista
+  // qué está pasando sin tener que abrir la consola del navegador.
+  function mostrarEstadoCamara(texto, tipo) {
+    const el = document.getElementById('scannerStatusMsg');
+    if (!el) return;
+    el.textContent = texto;
+    el.style.display = 'block';
+    if (tipo === 'error') {
+      el.style.background = 'rgba(220,53,69,0.1)';
+      el.style.color = 'var(--danger-color)';
+    } else {
+      el.style.background = 'rgba(5,93,226,0.07)';
+      el.style.color = 'var(--text-main)';
+    }
+  }
+  function ocultarEstadoCamara() {
+    const el = document.getElementById('scannerStatusMsg');
+    if (el) { el.style.display = 'none'; el.textContent = ''; }
+  }
+
+  // Pide la lista de cámaras DESPUÉS de que el video ya está corriendo
+  // establemente, para no competir con el start() inicial.
+  function cargarListaCamarasParaSelector() {
+    const selectGroup = document.getElementById('cameraSelectGroup');
+    const select = document.getElementById('cameraSelect');
     Html5Qrcode.getCameras().then(devices => {
-      if (devices && devices.length) {
-        availableCameras = devices;
-        select.innerHTML = devices.map(d => `<option value="${d.id}">${d.label || 'Cámara ' + d.id}</option>`).join('');
-        selectGroup.style.display = 'block';
-        
-        // Preferir cámara trasera por defecto si existe
-        let backCam = devices.find(d => d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('trasera'));
-        selectedCameraId = backCam ? backCam.id : devices[0].id;
-        select.value = selectedCameraId;
-        
-        iniciarLectorCamara(selectedCameraId);
+      if (!devices || !devices.length) return; // la cámara ya funciona; sin lista no se puede cambiar manualmente, pero no es un error
+      availableCameras = devices;
+      select.innerHTML = devices.map(d => `<option value="${d.id}">${d.label || 'Cámara ' + d.id}</option>`).join('');
+      selectGroup.style.display = 'block';
+
+      // Reflejar cuál es la cámara realmente activa (puede no coincidir con
+      // la primera de la lista si arrancamos con facingMode en vez de un id)
+      let activeId = null;
+      try {
+        const video = document.querySelector('#interactiveScanner video');
+        const track = video && video.srcObject && video.srcObject.getVideoTracks()[0];
+        activeId = track && track.getSettings && track.getSettings().deviceId;
+      } catch(e) {}
+      if (activeId && devices.some(d => d.id === activeId)) {
+        selectedCameraId = activeId;
       } else {
-        showToast('No se encontraron cámaras.', 'error');
-        detenerCamaraEscaneo();
+        selectedCameraId = devices[0].id;
       }
-    }).catch(err => {
-      showToast('Permisos de cámara denegados.', 'error');
-      detenerCamaraEscaneo();
+      select.value = selectedCameraId;
+    }).catch(() => {
+      // No se pudo enumerar (raro con el stream ya activo). No es fatal:
+      // la cámara sigue funcionando, solo no se podrá cambiar manualmente.
     });
   }
 
   function cambiarCamaraEscaneo() {
     selectedCameraId = document.getElementById('cameraSelect').value;
-    if (html5QrScanner) {
-      html5QrScanner.stop().then(() => {
-        html5QrScanner.clear();
-        iniciarLectorCamara(selectedCameraId);
-      }).catch(()=>{});
+    safeStopScanner(() => {
+      // Pequeña pausa para darle tiempo al hardware a liberarse antes de
+      // volver a pedirlo (mismo motivo que el comentario de arriba).
+      setTimeout(() => iniciarLectorCamara(selectedCameraId), 350);
+    });
+  }
+
+  // Detiene html5QrScanner de forma segura. stop() puede LANZAR una excepción
+  // SÍNCRONA ("Cannot stop, scanner is not running or paused") cuando el
+  // escáner nunca llegó a arrancar bien — no es un rechazo de promesa, así
+  // que un simple .catch() no la atrapa. Por eso aquí se envuelve en try/catch
+  // y además se valida el estado antes de llamar a stop().
+  function safeStopScanner(callback) {
+    if (!html5QrScanner) { if (callback) callback(); return; }
+    const scanner = html5QrScanner;
+    const limpiarYContinuar = () => {
+      try { scanner.clear(); } catch(e) {}
+      if (callback) callback();
+    };
+    try {
+      let estado = null;
+      try { estado = scanner.getState ? scanner.getState() : null; } catch(e) {}
+      const corriendo = estado === null || // si no se puede consultar el estado, intentamos igual
+        (typeof Html5QrcodeScannerState !== 'undefined' &&
+          (estado === Html5QrcodeScannerState.SCANNING || estado === Html5QrcodeScannerState.PAUSED));
+      if (!corriendo) { limpiarYContinuar(); return; }
+      scanner.stop().then(limpiarYContinuar).catch(limpiarYContinuar);
+    } catch(e) {
+      limpiarYContinuar();
     }
   }
 
   function iniciarLectorCamara(cameraId) {
-    if (html5QrScanner) { html5QrScanner.clear(); }
-    html5QrScanner = new Html5Qrcode("interactiveScanner");
-
     const config = {
       fps: 30,
-      qrbox: { width: 280, height: 140 },
+      // Caja de escaneo ADAPTATIVA: en vez de un tamaño fijo en píxeles,
+      // se calcula como proporción del tamaño real del video en cada
+      // dispositivo. Esto mejora mucho la detección automática porque la
+      // caja siempre queda bien encuadrada (ni demasiado grande ni
+      // demasiado pequeña) sin importar la resolución de la cámara.
+      qrbox: (viewfinderWidth, viewfinderHeight) => {
+        const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+        const w = Math.floor(minEdge * 0.82);
+        const h = Math.floor(w * 0.5); // proporción ancha, ideal para códigos de barras 1D
+        return { width: w, height: h };
+      },
       aspectRatio: 1.333,
       disableFlip: false,
       experimentalFeatures: { useBarCodeDetectorIfSupported: true },
@@ -1202,41 +1294,55 @@
       ]
     };
 
-    // Constraints básicos (deviceId + resolución). Las propiedades avanzadas
-    // (focusMode, zoom, whiteBalanceMode, exposureMode) NO se ponen aquí porque
-    // muchas cámaras no las soportan y, al exigirlas directamente, el navegador
-    // lanza OverconstrainedError y getUserMedia falla por completo
-    // (eso causaba el "Error al iniciar la cámara seleccionada").
-    // Se aplican después, de forma opcional, vía track.applyConstraints({advanced:...}).
-    const videoConstraints = {
-      deviceId: { exact: cameraId },
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
+    // Lista de constraints a intentar EN ORDEN. Las propiedades avanzadas
+    // (focusMode, zoom, whiteBalanceMode, exposureMode) NO se ponen aquí
+    // porque muchas cámaras no las soportan como constraint exigido y
+    // getUserMedia fallaría por completo (OverconstrainedError). Se aplican
+    // después, de forma opcional, vía track.applyConstraints({advanced:...}).
+    //
+    // Si cameraId viene null (arranque inicial, automático): empezamos por
+    // facingMode trasera — no depende de enumerar dispositivos antes, así
+    // que es la opción que evita la doble adquisición de cámara.
+    // Si cameraId viene con valor (el usuario eligió una cámara específica
+    // en el selector): se intenta esa primero.
+    const intentosConstraints = cameraId ? [
+      { deviceId: { exact: cameraId }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      true, // último recurso: cualquier cámara disponible, sin restricciones
+    ] : [
+      { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      { facingMode: 'environment' },
+      true, // por si el equipo no tiene cámara trasera (laptops, etc.)
+    ];
+
+    const onDecoded = (decodedText) => {
+      playBeep();
+      detenerCamaraEscaneo();
+      if (currentScannerTarget === 'v') {
+        procesarLecturaCodigoBarrasPOS(decodedText);
+      } else if (currentScannerTarget === 'p') {
+        document.getElementById('p_codigo').value = decodedText;
+        dispararAccionExitosa('Código capturado.');
+      } else if (currentScannerTarget === 'i') {
+        document.getElementById('f_texto').value = decodedText;
+        filtrarInventario();
+        dispararAccionExitosa('Filtro aplicado.');
+      }
     };
 
-    html5QrScanner.start(
-      videoConstraints,
-      config,
-      (decodedText) => {
-        playBeep();
-        detenerCamaraEscaneo();
-        if (currentScannerTarget === 'v') {
-          procesarLecturaCodigoBarrasPOS(decodedText);
-        } else if (currentScannerTarget === 'p') {
-          document.getElementById('p_codigo').value = decodedText;
-          dispararAccionExitosa('Código capturado.');
-        } else if (currentScannerTarget === 'i') {
-          document.getElementById('f_texto').value = decodedText;
-          filtrarInventario();
-          dispararAccionExitosa('Filtro aplicado.');
-        }
-      },
-      () => {} // ignorar frames vacíos
-    ).then(() => {
+    const onArranqueOk = () => {
+      ocultarEstadoCamara();
       // Mostrar controles y aplicar mejoras por defecto
       document.getElementById('scannerControls').style.display = 'block';
       aplicarFiltrosCamara();
-      // Intentar activar enfoque continuo mediante la API de tracks
+      // Intentar activar enfoque continuo mediante la API de tracks, y
+      // detectar si la cámara soporta linterna (ayuda a la lectura
+      // automática en lugares con poca luz sin depender de captura manual).
+      torchActivo = false;
+      const btnLinterna = document.getElementById('btnLinterna');
+      btnLinterna.style.display = 'none';
+      btnLinterna.classList.remove('primary-btn');
+      btnLinterna.classList.add('secondary-btn');
       try {
         const video = document.querySelector('#interactiveScanner video');
         if (video && video.srcObject) {
@@ -1244,12 +1350,99 @@
           if (track && track.applyConstraints) {
             track.applyConstraints({ advanced: [{ focusMode: 'continuous', zoom: 1 }] }).catch(()=>{});
           }
+          const capabilities = track && track.getCapabilities ? track.getCapabilities() : null;
+          if (capabilities && capabilities.torch) {
+            btnLinterna.style.display = 'inline-flex';
+          }
         }
       } catch(e) {}
-    }).catch((err) => {
-      console.error('Error al iniciar cámara:', err);
-      const msg = (err && (err.name || err.message)) ? `Error al iniciar la cámara: ${err.name || err.message}` : 'Error al iniciar la cámara seleccionada.';
+      // Recién ahora, con el video ya activo y estable, pedimos la lista
+      // de cámaras para llenar el selector (ver comentario arriba de la
+      // función). Si el usuario ya había elegido una cámara del selector,
+      // no hace falta repoblar la lista.
+      if (!cameraId) cargarListaCamarasParaSelector();
+    };
+
+    intentarArrancarCamara(intentosConstraints, 0, config, onDecoded, onArranqueOk, null);
+  }
+
+  // Intenta arrancar la cámara probando cada set de constraints en orden.
+  // Si uno falla (por ejemplo el dispositivo sigue ocupado del intento
+  // anterior), espera un instante y reintenta con el siguiente — la pausa
+  // es clave: reintentar de inmediato reproduce el mismo parpadeo de LED
+  // sin llegar a cargar el video, porque el hardware aún no se liberó.
+  //
+  // Incluye un "watchdog": si start() ni resuelve ni rechaza en 9s (algunas
+  // combinaciones de navegador/driver de cámara se quedan colgadas sin
+  // emitir error — por ejemplo cuando el permiso quedó "Bloqueado" a nivel
+  // de sitio y el navegador ni siquiera muestra el diálogo), se abandona
+  // ese intento y se pasa al siguiente en vez de quedarse esperando para
+  // siempre. Cada intento usa una instancia nueva de Html5Qrcode para no
+  // heredar un estado a medio iniciar del intento anterior.
+  function intentarArrancarCamara(intentos, idx, config, onDecoded, onArranqueOk, ultimoError) {
+    if (idx >= intentos.length) {
+      const esPermisoDenegado = ultimoError && (ultimoError.name === 'NotAllowedError' || ultimoError.name === 'PermissionDeniedError');
+      const esSinCamara = ultimoError && (ultimoError.name === 'NotFoundError' || ultimoError.name === 'DevicesNotFoundError');
+      const esTimeout = ultimoError && ultimoError.name === 'TimeoutError';
+      const msg = esPermisoDenegado
+        ? 'Permisos de cámara denegados. Toca el ícono de candado junto a la URL → Permisos → Cámara → Permitir, y vuelve a intentar.'
+        : esSinCamara ? 'No se encontraron cámaras en este dispositivo.'
+        : esTimeout ? 'El navegador no respondió a la solicitud de cámara. Es muy probable que esté bloqueada en la configuración del sitio (candado junto a la URL → Permisos → Cámara), o que otra app/pestaña la esté usando.'
+        : 'No se pudo iniciar la cámara. Cierra otras apps/pestañas que puedan estar usándola e inténtalo de nuevo.';
+      console.error('[Escáner] Todos los intentos fallaron. Último error:', ultimoError);
+      mostrarEstadoCamara(msg, 'error');
       showToast(msg, 'error');
+      // No cerramos el modal automáticamente: dejamos el mensaje visible
+      // para que el usuario lo lea y decida (puede cerrar con Cancelar/X).
+      safeStopScanner();
+      html5QrScanner = null;
+      return;
+    }
+
+    // Instancia nueva en cada intento (no reutilizamos una que pudo quedar
+    // a medio iniciar si el intento anterior se descartó por timeout).
+    try { if (html5QrScanner) html5QrScanner.clear(); } catch(e) {}
+    html5QrScanner = new Html5Qrcode("interactiveScanner");
+
+    console.log(`[Escáner] Intento ${idx + 1}/${intentos.length} — constraints:`, intentos[idx]);
+    mostrarEstadoCamara(
+      idx === 0 ? 'Solicitando acceso a la cámara...' : `Probando cámara alternativa (intento ${idx + 1} de ${intentos.length})...`,
+      'info'
+    );
+
+    let yaResuelto = false;
+    const startPromise = html5QrScanner.start(intentos[idx], config, onDecoded, () => {});
+
+    const watchdogId = setTimeout(() => {
+      if (yaResuelto) return;
+      yaResuelto = true;
+      const errTimeout = new Error('La cámara no respondió a tiempo.');
+      errTimeout.name = 'TimeoutError';
+      console.warn(`[Escáner] Intento ${idx + 1} sin respuesta tras 9s — se descarta y se pasa al siguiente.`);
+      intentarArrancarCamara(intentos, idx + 1, config, onDecoded, onArranqueOk, errTimeout);
+    }, 9000);
+
+    startPromise.then(() => {
+      if (yaResuelto) {
+        // El watchdog ya avanzó al siguiente intento; esta respuesta tardía
+        // se descarta para no pisar el estado actual del modal.
+        console.warn(`[Escáner] Intento ${idx + 1} respondió tarde (después del timeout); se ignora.`);
+        try { html5QrScanner && html5QrScanner.stop().catch(()=>{}); } catch(e) {}
+        return;
+      }
+      yaResuelto = true;
+      clearTimeout(watchdogId);
+      if (idx > 0) console.warn(`[Escáner] Cámara iniciada con constraints de respaldo (intento ${idx + 1}).`);
+      else console.log('[Escáner] Cámara iniciada correctamente.');
+      onArranqueOk();
+    }).catch((err) => {
+      if (yaResuelto) return;
+      yaResuelto = true;
+      clearTimeout(watchdogId);
+      console.warn(`[Escáner] Intento ${idx + 1} de iniciar cámara falló:`, (err && (err.name || err.message)) || err);
+      setTimeout(() => {
+        intentarArrancarCamara(intentos, idx + 1, config, onDecoded, onArranqueOk, err);
+      }, 350);
     });
   }
 
@@ -1332,12 +1525,31 @@
     }
   }
 
+  // Enciende/apaga la linterna del dispositivo (si la cámara activa la
+  // soporta). Ayuda a que la lectura automática funcione en ambientes con
+  // poca luz sin tener que recurrir a "Capturar foto".
+  function alternarLinterna() {
+    try {
+      const video = document.querySelector('#interactiveScanner video');
+      const track = video && video.srcObject && video.srcObject.getVideoTracks()[0];
+      if (!track || !track.applyConstraints) return;
+      torchActivo = !torchActivo;
+      track.applyConstraints({ advanced: [{ torch: torchActivo }] }).then(() => {
+        const btn = document.getElementById('btnLinterna');
+        btn.classList.toggle('primary-btn', torchActivo);
+        btn.classList.toggle('secondary-btn', !torchActivo);
+      }).catch(() => {
+        torchActivo = !torchActivo; // revertir si falló
+        showToast('No se pudo controlar la linterna en este dispositivo.', 'warning');
+      });
+    } catch(e) {}
+  }
+
   function detenerCamaraEscaneo() {
     document.getElementById('scannerModal').classList.add('hidden');
-    if (html5QrScanner) {
-      html5QrScanner.stop().then(() => html5QrScanner.clear()).catch(()=>{});
-      html5QrScanner = null;
-    }
+    safeStopScanner();
+    html5QrScanner = null;
+    torchActivo = false;
   }
 
   // --- LÓGICA POS (BUSCADOR MANUAL) ---
