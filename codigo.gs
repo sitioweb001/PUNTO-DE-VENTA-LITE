@@ -12,6 +12,7 @@ const H_VENTA_DET    = "VentaDetalle";
 const H_PAPELERA     = "Papelera";
 const H_ACTIVIDAD    = "Actividad";
 const H_SOPORTE      = "Soporte";
+const H_HACIENDA     = "HaciendaArchivos";
 
 // ── MANTENIMIENTO ── (guardado en PropertiesService, no en hoja)
 function getModoMantenimiento() {
@@ -29,7 +30,8 @@ const HDR = {
   VentaDetalle:  ["id","venta_id","producto_id","producto_nombre","cantidad","precio_unitario","descuento_linea","subtotal_linea"],
   Papelera:      ["id","tipo","datos_originales","fecha_eliminado","eliminado_por"],
   Actividad:     ["id","fecha","usuario","accion","detalle"],
-  Soporte:       ["id","usuario","titulo","descripcion","estado","fecha","fecha_actualizado","respuesta","admin"]
+  Soporte:       ["id","usuario","titulo","descripcion","estado","fecha","fecha_actualizado","respuesta","admin"],
+  HaciendaArchivos: ["id","categoria","nombre_archivo","tipo_archivo","contenido_base64","tamano_bytes","fecha","usuario"]
 };
 
 function ss()  { return SpreadsheetApp.openById(SPREADSHEET_ID); }
@@ -85,6 +87,8 @@ function doGet(e) {
       case 'getPapelera': r = getData(H_PAPELERA); break;
       case 'getActividad': r = getData(H_ACTIVIDAD); break;
       case 'getSoporte': r = getData(H_SOPORTE); break;
+      case 'getArchivosHacienda': r = getArchivosHacienda(p.categoria); break;
+      case 'descargarArchivoHacienda': r = descargarArchivoHacienda(p.id); break;
       default: r = {status:'error', message:`Acción '${p.action}' no válida.`};
     }
   } catch(ex) { r = {status:'error', message:ex.message}; }
@@ -111,6 +115,8 @@ function doPost(e) {
       case 'registrarCompra': r = registrarCompra(req); break;
       case 'importarDatos': r = importarDatos(req); break;
       case 'crearTicketSoporte': sh(H_SOPORTE).appendRow([uid(), req.usuario, req.titulo, req.descripcion, 'nuevo', new Date(), new Date(), '', '']); r = {status:'success', message:'Ticket de soporte creado.'}; break;
+      case 'subirArchivoHacienda': r = subirArchivoHacienda(req); break;
+      case 'eliminarArchivoHacienda': r = eliminarArchivoHacienda(req); break;
       default: r = {status:'error', message:'Acción no reconocida'};
     }
     return resp(r);
@@ -215,8 +221,14 @@ function getReporte(tipo, fechaIni, fechaFin) {
   const fi = new Date(fechaIni || 0); fi.setHours(0,0,0,0);
   const ff = new Date(fechaFin || Date.now()); ff.setHours(23,59,59,999);
   if (tipo === 'ventas') {
-    const d = getData(H_VENTAS); if (d.status!=='success') return d;
-    const f = d.data.filter(v=>{const x=new Date(v.fecha);return x>=fi&&x<=ff;});
+    // Se reutiliza getVentasConDetalle() para que el reporte traiga también
+    // los items (productos, cantidades, precios) de cada venta — antes este
+    // bloque llamaba directamente a getData(H_VENTAS), que NO incluye el
+    // detalle, y por eso el modal de "Detalle de Venta" y el Ticket PDF
+    // mostraban "No hay detalle de productos disponible para esta venta".
+    const con = getVentasConDetalle();
+    if (con.status !== 'success') return con;
+    const f = con.data.filter(v=>{const x=new Date(v.fecha);return x>=fi&&x<=ff;});
     return {status:'success', data:f, resumen:{total:f.reduce((s,v)=>s+(parseFloat(v.total)||0),0), tickets:f.length}};
   } else if (tipo === 'compras') {
     const d = getData(H_COMPRAS); if (d.status!=='success') return d;
@@ -240,8 +252,62 @@ function importarDatos(data) {
   return {status:'success', message:`Importados: ${ok} | Errores: ${err}`};
 }
 
+// ── MINISTERIO DE HACIENDA — Archivos Generales (G) y Específicos (E) ──
+// Los archivos se guardan en base64 directamente en la hoja de cálculo.
+// Google Sheets tiene un límite de ~50,000 caracteres por celda, por lo
+// que se restringe cada archivo a un tamaño prudente (~30 KB reales).
+const HACIENDA_MAX_BASE64 = 45000;
+
+function getArchivosHacienda(categoria) {
+  const hoja = sh(H_HACIENDA);
+  if (!hoja || hoja.getLastRow() < 2) return {status:'success', data:[]};
+  const d = getData(H_HACIENDA);
+  if (d.status !== 'success') return {status:'success', data:[]};
+  let rows = d.data.map(r => ({
+    id: r.id, categoria: r.categoria, nombre_archivo: r.nombre_archivo,
+    tipo_archivo: r.tipo_archivo, tamano_bytes: r.tamano_bytes, fecha: r.fecha, usuario: r.usuario
+  }));
+  if (categoria) rows = rows.filter(r => r.categoria === categoria);
+  rows.sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
+  return {status:'success', data: rows};
+}
+
+function descargarArchivoHacienda(id) {
+  const hoja = sh(H_HACIENDA);
+  if (!hoja) return {status:'error', message:'No encontrado.'};
+  const vals = hoja.getDataRange().getValues();
+  for (let i = 1; i < vals.length; i++) {
+    if (String(vals[i][0]) === String(id)) {
+      const r = vals[i];
+      return {status:'success', data:{ id:r[0], categoria:r[1], nombre_archivo:r[2], tipo_archivo:r[3], contenido_base64:r[4], tamano_bytes:r[5], fecha:r[6], usuario:r[7] }};
+    }
+  }
+  return {status:'error', message:'Archivo no encontrado.'};
+}
+
+function subirArchivoHacienda(data) {
+  if (!data.categoria || ['G','E'].indexOf(data.categoria) === -1) return {status:'error', message:'Categoría inválida (debe ser G o E).'};
+  if (!data.nombre_archivo) return {status:'error', message:'Falta el nombre del archivo.'};
+  if (!data.contenido_base64) return {status:'error', message:'Falta el contenido del archivo.'};
+  if (data.contenido_base64.length > HACIENDA_MAX_BASE64) return {status:'error', message:'El archivo es demasiado grande. Límite aprox. 30 KB por restricción de Google Sheets.'};
+  sh(H_HACIENDA).appendRow([uid(), data.categoria, data.nombre_archivo, data.tipo_archivo||'', data.contenido_base64, data.tamano_bytes||0, new Date(), data.usuario||'Sistema']);
+  log(data.usuario, 'Hacienda - Subir archivo', `[${data.categoria}] ${data.nombre_archivo}`);
+  return {status:'success', message:'Archivo subido con éxito.'};
+}
+
+function eliminarArchivoHacienda(data) {
+  const hoja = sh(H_HACIENDA); const {idx} = findRow(hoja, data.id);
+  if (idx > -1) {
+    const nombre = hoja.getRange(idx+1, 3).getValue();
+    hoja.deleteRow(idx+1);
+    log(data.usuario, 'Hacienda - Eliminar archivo', nombre);
+    return {status:'success', message:'Archivo eliminado con éxito.'};
+  }
+  return {status:'error', message:'No encontrado.'};
+}
+
 function iniciarBD() {
-  [H_CATEGORIAS,H_PRODUCTOS,H_COMPRAS,H_VENTAS,H_VENTA_DET,H_PAPELERA,H_ACTIVIDAD,H_SOPORTE].forEach(crearHoja);
+  [H_CATEGORIAS,H_PRODUCTOS,H_COMPRAS,H_VENTAS,H_VENTA_DET,H_PAPELERA,H_ACTIVIDAD,H_SOPORTE,H_HACIENDA].forEach(crearHoja);
   return {status:'success', message:'BD Lite inicializada correctamente.'};
 }
 
