@@ -213,6 +213,7 @@
 
   let categoriasGlobal = [];
   let pendientes = [];
+  let inventarioCodigosGlobal = [];
   let html5QrScanner = null;
   let availableCameras = [];
   let selectedCameraId = null;
@@ -315,9 +316,62 @@
     document.getElementById('p_codigo').focus();
   });
 
+  // ── CÓDIGOS EXISTENTES (para detectar incongruencia de ceros a la izquierda) ──
+  async function cargarInventarioCodigos() {
+    try {
+      const res = await fetch(`${SCRIPT_URL}?action=getInventario`).then(r => r.json());
+      if (res.status === 'success') inventarioCodigosGlobal = res.data.map(p => p['código'] || p.codigo || '');
+    } catch(e) { inventarioCodigosGlobal = []; }
+  }
+
+  // Compara el formato de los códigos YA guardados en el sistema (con o sin
+  // ceros a la izquierda) contra el formato de los códigos que se van a
+  // registrar. Ver la misma lógica y explicación en index.html.
+  function detectarInconsistenciaCeros(codigosExistentes, codigosNuevos) {
+    const traeCeroAlInicio = c => /^0\d/.test(String(c || '').trim());
+    const existentesConCodigo = (codigosExistentes || []).filter(c => String(c || '').trim() !== '');
+    const nuevosConCodigo = (codigosNuevos || []).filter(c => String(c || '').trim() !== '');
+    if (!existentesConCodigo.length || !nuevosConCodigo.length) return null;
+
+    const nExistentesConCero = existentesConCodigo.filter(traeCeroAlInicio).length;
+    const formatoActual = nExistentesConCero > existentesConCodigo.length / 2 ? 'con_ceros' : 'sin_ceros';
+
+    const nuevosDistintos = nuevosConCodigo.filter(c => (traeCeroAlInicio(c) ? 'con_ceros' : 'sin_ceros') !== formatoActual);
+    if (!nuevosDistintos.length) return null;
+
+    return {
+      formatoActual,
+      cantidadDistintos: nuevosDistintos.length,
+      totalNuevos: nuevosConCodigo.length,
+      ejemploExistente: existentesConCodigo.find(c => (traeCeroAlInicio(c) ? 'con_ceros' : 'sin_ceros') === formatoActual),
+      ejemploNuevo: nuevosDistintos[0]
+    };
+  }
+
+  function confirmarPeseAIncongruenciaCeros(inconsistencia) {
+    const formatoActualTxto = inconsistencia.formatoActual === 'con_ceros'
+      ? 'CON ceros a la izquierda (ej. "00753081010115")'
+      : 'SIN ceros a la izquierda (ej. "753081010115")';
+    const formatoNuevoTxto = inconsistencia.formatoActual === 'con_ceros'
+      ? 'SIN esos ceros'
+      : 'CON ceros a la izquierda';
+    return confirm(
+      `⚠️ Incongruencia de código de barras detectada\n\n` +
+      `El sistema principal actualmente guarda los códigos ${formatoActualTxto}.\n` +
+      `${inconsistencia.cantidadDistintos} de ${inconsistencia.totalNuevos} producto(s) en tu lista tienen códigos ${formatoNuevoTxto} (ej. "${inconsistencia.ejemploNuevo}").\n\n` +
+      `Si continúas así, el lector de código de barras podría no encontrar esos productos después.\n\n` +
+      `Sugerencia: activa "Buscar ignorando ceros a la izquierda" en Ajustes › Validación de Código de Barras del sistema principal, o corrige los códigos de la lista antes de registrar.\n\n` +
+      `¿Deseas registrar de todas formas?`
+    );
+  }
+
   // ── REGISTRAR TODO EN LA BASE DE DATOS (en un solo lote) ──
   async function registrarTodoEnBD() {
     if (!pendientes.length) return;
+    const inconsistencia = detectarInconsistenciaCeros(inventarioCodigosGlobal, pendientes.map(p => p.codigo));
+    if (inconsistencia && !confirmarPeseAIncongruenciaCeros(inconsistencia)) {
+      return showToast('Registro cancelado. Corrige los códigos de la lista y vuelve a intentarlo.', 'warning');
+    }
     if (!confirm(`¿Registrar ${pendientes.length} producto(s) directamente en la base de datos?`)) return;
     showSpinner('Registrando productos...');
     try {
@@ -328,6 +382,7 @@
         pendientes = [];
         guardarPendientesLocal();
         renderTablaPendientes();
+        await cargarInventarioCodigos();
       } else { showToast(res.message || 'Error al registrar los productos.', 'error'); }
     } catch(e) { hideSpinner(); showToast('Error de conexión con el servidor.', 'error'); }
   }
@@ -828,6 +883,7 @@
     cargarPendientesLocal();
     renderTablaPendientes();
     cargarCategorias();
+    cargarInventarioCodigos();
   });
 </script>
 </body>

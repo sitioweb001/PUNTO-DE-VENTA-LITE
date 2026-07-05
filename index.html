@@ -358,6 +358,23 @@
     .resumen-card .val { font-size: 1.5rem; font-weight: 800; color: var(--primary-color); }
     .resumen-card .lbl { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
     .rep-table td, .rep-table th { white-space: nowrap; }
+
+    /* ── Interruptor tipo cápsula (rojo/verde) — Ajustes › Código de barras ── */
+    .switch-capsula { position: relative; display: inline-block; width: 56px; height: 30px; flex-shrink: 0; }
+    .switch-capsula input { opacity: 0; width: 0; height: 0; }
+    .switch-capsula .capsula-riel {
+      position: absolute; cursor: pointer; inset: 0; background: var(--danger-color, #dc3545);
+      border-radius: 999px; transition: background-color .2s ease;
+    }
+    .switch-capsula .capsula-riel::before {
+      content: ""; position: absolute; height: 24px; width: 24px; left: 3px; bottom: 3px;
+      background: #fff; border-radius: 50%; transition: transform .2s ease; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+    }
+    .switch-capsula input:checked + .capsula-riel { background: var(--success-color, #28a745); }
+    .switch-capsula input:checked + .capsula-riel::before { transform: translateX(26px); }
+    .switch-capsula input:focus-visible + .capsula-riel { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+    .ajuste-fila-switch { display: flex; align-items: center; gap: 14px; justify-content: space-between; flex-wrap: wrap; }
+    .ajuste-switch-estado { font-weight: 700; font-size: 0.82rem; }
   </style>
 </head>
 <body id="appBody">
@@ -1112,6 +1129,21 @@
           </div>
         </div>
 
+        <!-- Validación de Código de Barras (ceros a la izquierda) -->
+        <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg); padding:1.25rem;">
+          <h4 style="margin-bottom:0.5rem; color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em;">Validación de Código de Barras</h4>
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">
+            Google Sheets borra los ceros del inicio de un código al guardarlo (ej. <code>000753081010115</code> se guarda como <code>753081010115</code>). El lector/pistola de código de barras, en cambio, siempre envía el código completo con sus ceros. Activa esto para que el buscador (Ventas, Carrito, Inventario, Compras, Editor de hoja) <b>ignore los ceros a la izquierda que sean necesarios</b> al comparar, sin importar cuántos sean.
+          </p>
+          <div class="ajuste-fila-switch">
+            <label class="switch-capsula">
+              <input type="checkbox" id="chkIgnorarCerosCodigo" onchange="cambiarConfigCodigoBarras(this.checked)">
+              <span class="capsula-riel"></span>
+            </label>
+            <span class="ajuste-switch-estado" id="lblEstadoIgnorarCeros" style="color:var(--danger-color);">Desactivado (búsqueda exacta)</span>
+          </div>
+        </div>
+
         <!-- Ministerio de Hacienda -->
         <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg); padding:1.25rem;">
           <h4 style="margin-bottom:1rem; color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em;">Ministerio de Hacienda</h4>
@@ -1196,6 +1228,70 @@
   const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwbYNUf0--D2RVqFyaBZHFxQuClX6RBybuhK6kJU9Q02NZyICUIXEnUWIR1x25xMnfMrA/exec";
 
   let inventarioGlobal = [], carrito = [];
+
+  // ══ CÓDIGO DE BARRAS: IGNORAR CEROS A LA IZQUIERDA ═══════════════
+  // Ver explicación completa junto al interruptor en Ajustes y en Code.gs
+  // (getConfigIgnorarCeros / normalizarCodigo_). Este ajuste vive en el
+  // servidor (PropertiesService) para que sea el mismo en cualquier PC o
+  // celular que abra el sistema, igual que el modo mantenimiento.
+  let configIgnorarCerosCodigo = false;
+
+  // Quita los ceros a la izquierda de un código de barras, sin importar
+  // cuántos sean, SOLO si el interruptor de Ajustes está activado. Se usa
+  // en absolutamente todos los puntos donde se compara un código escrito o
+  // escaneado contra los códigos guardados en inventarioGlobal (POS,
+  // Carrito, Inventario, Compras, Editor de hoja, lector USB).
+  function normalizarCodigoBarras(codigo) {
+    const c = String(codigo == null ? '' : codigo).trim().toLowerCase();
+    if (!configIgnorarCerosCodigo) return c;
+    return c.replace(/^0+(?=.)/, '');
+  }
+  // Compara un código guardado contra un valor buscado/escaneado, respetando
+  // el ajuste de "ignorar ceros a la izquierda".
+  function codigosCoinciden(codigoGuardado, valorBuscado) {
+    return normalizarCodigoBarras(codigoGuardado) === normalizarCodigoBarras(valorBuscado);
+  }
+
+  async function cargarConfigCodigoBarras() {
+    try {
+      const res = await fetch(`${SCRIPT_URL}?action=getConfigCodigoBarras`).then(r => r.json());
+      configIgnorarCerosCodigo = res.status === 'success' ? !!res.activo : false;
+    } catch(e) { configIgnorarCerosCodigo = false; }
+    actualizarUIConfigCodigoBarras();
+  }
+
+  function actualizarUIConfigCodigoBarras() {
+    const chk = document.getElementById('chkIgnorarCerosCodigo');
+    const lbl = document.getElementById('lblEstadoIgnorarCeros');
+    if (chk) chk.checked = configIgnorarCerosCodigo;
+    if (lbl) {
+      lbl.textContent = configIgnorarCerosCodigo ? 'Activado (ignora ceros a la izquierda)' : 'Desactivado (búsqueda exacta)';
+      lbl.style.color = configIgnorarCerosCodigo ? 'var(--success-color)' : 'var(--danger-color)';
+    }
+  }
+
+  async function cambiarConfigCodigoBarras(activo) {
+    const chk = document.getElementById('chkIgnorarCerosCodigo');
+    showSpinner(activo ? 'Activando...' : 'Desactivando...');
+    try {
+      const res = await fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify({ action:'setConfigCodigoBarras', activo, usuario:'admin' }) }).then(r => r.json());
+      hideSpinner();
+      if (res.status === 'success') {
+        configIgnorarCerosCodigo = !!res.activo;
+        actualizarUIConfigCodigoBarras();
+        dispararAccionExitosa(configIgnorarCerosCodigo
+          ? 'Búsqueda de código de barras ahora ignora los ceros a la izquierda.'
+          : 'Búsqueda de código de barras vuelve a ser exacta.');
+      } else {
+        if (chk) chk.checked = configIgnorarCerosCodigo; // revertir visualmente
+        showToast(res.message || 'Error al actualizar la configuración.', 'error');
+      }
+    } catch(e) {
+      hideSpinner();
+      if (chk) chk.checked = configIgnorarCerosCodigo;
+      showToast('Error de conexión con el servidor.', 'error');
+    }
+  }
   // ── Editor de hoja de cálculo: estado del buscador + scroll virtual ──
   let editorHojaFiltrado = [];      // productos visibles según el buscador
   let editorHojaEdiciones = {};     // id -> valores sin confirmar todavía (para no perderlos al reciclar filas)
@@ -1242,8 +1338,18 @@
   // al navegador. Cada vez que se modifica el sistema (por mínimo que
   // sea el cambio) se sube APP_VERSION y se agrega una entrada nueva
   // arriba de APP_CHANGELOG.
-  const APP_VERSION = '4.6.0';
+  const APP_VERSION = '4.7.0';
   const APP_CHANGELOG = [
+    {
+      version: '4.7.0',
+      fecha: '2026-07-05',
+      cambios: [
+        'Agregado Ajustes › Validación de Código de Barras: interruptor para que el buscador (Ventas, Carrito, Inventario, Compras, Editor de hoja) ignore los ceros a la izquierda del código, sin importar cuántos sean.',
+        'Corregida la causa raíz: la columna "código" de Productos ahora se fuerza a formato de Texto Plano para que Google Sheets deje de borrar los ceros a la izquierda al guardar un código nuevo.',
+        'Agregado aviso antes de importar: si el archivo (.csv/.json) trae códigos en un formato distinto (con/sin ceros) al que ya usa el sistema, se muestra una advertencia antes de subirlo.',
+        'Aplicada la misma validación de ceros a la izquierda a Registro Masivo de Productos antes de registrar en la base de datos.',
+      ]
+    },
     {
       version: '4.6.0',
       fecha: '2026-06-30',
@@ -1584,6 +1690,7 @@
         renderCategorias();
       }
       await loadInventario();
+      await cargarConfigCodigoBarras();
     } catch(e) { showToast('Error al conectar con el servidor.', 'error'); }
     hideSpinner();
   }
@@ -1664,7 +1771,11 @@
     const q = document.getElementById('f_texto').value.toLowerCase();
     const orden = document.getElementById('f_orden')?.value || '';
 
-    inventarioFiltrado = inventarioGlobal.filter(p => p.nombre.toLowerCase().includes(q) || String(p['código']).toLowerCase().includes(q));
+    inventarioFiltrado = inventarioGlobal.filter(p =>
+      p.nombre.toLowerCase().includes(q) ||
+      String(p['código']).toLowerCase().includes(q) ||
+      (q && codigosCoinciden(p['código'], q))
+    );
 
     // ── Orden por cantidad (stock) o por precio de venta ──
     const comparadores = {
@@ -1801,7 +1912,9 @@
   function filtrarEditorHoja() {
     const q = document.getElementById('eh_buscar').value.toLowerCase().trim();
     editorHojaFiltrado = !q ? inventarioGlobal.slice() : inventarioGlobal.filter(p =>
-      (p.nombre || '').toLowerCase().includes(q) || String(p['código'] || '').toLowerCase().includes(q)
+      (p.nombre || '').toLowerCase().includes(q) ||
+      String(p['código'] || '').toLowerCase().includes(q) ||
+      codigosCoinciden(p['código'], q)
     );
     renderEditorHojaVirtual(true);
   }
@@ -2533,7 +2646,7 @@
     const val = e.target.value.trim();
     if (!val) { document.getElementById('v_sugerencias').classList.add('hidden'); return; }
     
-    const exactItem = inventarioGlobal.find(p => String(p['código']).toLowerCase() === val.toLowerCase());
+    const exactItem = inventarioGlobal.find(p => codigosCoinciden(p['código'], val));
     if (exactItem) {
       agregarItemAlCarrito(exactItem);
       e.target.value = '';
@@ -2552,7 +2665,7 @@
   });
 
   function procesarLecturaCodigoBarrasPOS(codigo) {
-    const item = inventarioGlobal.find(p => String(p['código']).toLowerCase() === codigo.toLowerCase());
+    const item = inventarioGlobal.find(p => codigosCoinciden(p['código'], codigo));
     if (item) {
       agregarItemAlCarrito(item);
     } else {
@@ -2644,7 +2757,7 @@
       filtrarInventario();
       dispararAccionExitosa('Filtro aplicado.');
     } else if (seccionId === 'compras') {
-      const item = inventarioGlobal.find(p => String(p['código']).toLowerCase() === codigo.toLowerCase());
+      const item = inventarioGlobal.find(p => codigosCoinciden(p['código'], codigo));
       if (item) {
         document.getElementById('co_query').value = item.nombre;
         document.getElementById('co_prod_id').value = item.id;
@@ -2957,7 +3070,11 @@
   document.getElementById('co_query').addEventListener('input', e => {
     const val = e.target.value.trim();
     if(!val) return;
-    const match = inventarioGlobal.filter(p => p.nombre.toLowerCase().includes(val.toLowerCase()) || String(p['código']).includes(val));
+    const match = inventarioGlobal.filter(p =>
+      p.nombre.toLowerCase().includes(val.toLowerCase()) ||
+      String(p['código']).includes(val) ||
+      codigosCoinciden(p['código'], val)
+    );
     const sug = document.getElementById('co_sugerencias');
     if(match.length) {
       sug.innerHTML = match.map(p => `<div style="padding:10px; cursor:pointer;" onclick='document.getElementById("co_query").value="${p.nombre}"; document.getElementById("co_prod_id").value="${p.id}"; document.getElementById("co_sugerencias").classList.add("hidden");'>${p.nombre}</div>`).join('');
@@ -3442,6 +3559,52 @@
     hideSpinner();
   }
 
+  // Compara el formato de los códigos YA guardados en el sistema (con o sin
+  // ceros a la izquierda) contra el formato de los códigos que se están por
+  // subir. Si la mayoría de un lado usa un formato y el archivo nuevo trae
+  // códigos en el otro formato, devuelve un aviso; si no hay incongruencia
+  // (o no hay suficiente información para comparar), devuelve null.
+  function detectarInconsistenciaCeros(codigosExistentes, codigosNuevos) {
+    const traeCeroAlInicio = c => /^0\d/.test(String(c || '').trim());
+    const existentesConCodigo = (codigosExistentes || []).filter(c => String(c || '').trim() !== '');
+    const nuevosConCodigo = (codigosNuevos || []).filter(c => String(c || '').trim() !== '');
+    if (!existentesConCodigo.length || !nuevosConCodigo.length) return null;
+
+    const nExistentesConCero = existentesConCodigo.filter(traeCeroAlInicio).length;
+    const formatoActual = nExistentesConCero > existentesConCodigo.length / 2 ? 'con_ceros' : 'sin_ceros';
+
+    const nuevosDistintos = nuevosConCodigo.filter(c => (traeCeroAlInicio(c) ? 'con_ceros' : 'sin_ceros') !== formatoActual);
+    if (!nuevosDistintos.length) return null;
+
+    return {
+      formatoActual,
+      cantidadDistintos: nuevosDistintos.length,
+      totalNuevos: nuevosConCodigo.length,
+      ejemploExistente: existentesConCodigo.find(c => (traeCeroAlInicio(c) ? 'con_ceros' : 'sin_ceros') === formatoActual),
+      ejemploNuevo: nuevosDistintos[0]
+    };
+  }
+
+  // Muestra el aviso de incongruencia con confirm() (igual que el resto del
+  // sistema usa confirm() para acciones que requieren aprobación explícita)
+  // y devuelve true si el usuario decide continuar de todas formas.
+  function confirmarPeseAIncongruenciaCeros(inconsistencia) {
+    const formatoActualTxto = inconsistencia.formatoActual === 'con_ceros'
+      ? 'CON ceros a la izquierda (ej. "00753081010115")'
+      : 'SIN ceros a la izquierda (ej. "753081010115")';
+    const formatoNuevoTxto = inconsistencia.formatoActual === 'con_ceros'
+      ? 'SIN esos ceros'
+      : 'CON ceros a la izquierda';
+    return confirm(
+      `⚠️ Incongruencia de código de barras detectada\n\n` +
+      `Tu sistema actualmente guarda los códigos ${formatoActualTxto}.\n` +
+      `${inconsistencia.cantidadDistintos} de ${inconsistencia.totalNuevos} código(s) del archivo que vas a subir vienen ${formatoNuevoTxto} (ej. "${inconsistencia.ejemploNuevo}").\n\n` +
+      `Si continúas así, el lector de código de barras podría no encontrar esos productos después.\n\n` +
+      `Sugerencia: activa "Buscar ignorando ceros a la izquierda" en Ajustes › Validación de Código de Barras para que esto no afecte las búsquedas, o corrige el archivo antes de subirlo.\n\n` +
+      `¿Deseas continuar de todas formas con la subida?`
+    );
+  }
+
   async function procesarArchivoImportador() {
     const fileInput = document.getElementById('imp_file');
     if(!fileInput.files.length) return showToast('Selecciona un archivo primero.', 'warning');
@@ -3489,6 +3652,19 @@
       if (!filas.length && !categoriasCrudas.length && !ventasCrudas.length && !papeleraCruda.length) {
         hideSpinner();
         return showToast('El archivo no contiene filas válidas (falta la columna "nombre" o los datos de respaldo).', 'warning');
+      }
+
+      // Antes de subir: avisar si los códigos del archivo no coinciden con
+      // el formato (con o sin ceros a la izquierda) que ya usa el sistema.
+      if (filas.length) {
+        const inconsistencia = detectarInconsistenciaCeros(inventarioGlobal.map(p => p['código']), filas.map(f => f.codigo));
+        if (inconsistencia) {
+          hideSpinner();
+          if (!confirmarPeseAIncongruenciaCeros(inconsistencia)) {
+            return showToast('Subida cancelada. Corrige el archivo y vuelve a intentarlo.', 'warning');
+          }
+          showSpinner('Procesando archivo...');
+        }
       }
 
       const payload = { action:'importarDatos', tipo:'productos', filas, nombre_archivo: file.name, usuario:'admin' };

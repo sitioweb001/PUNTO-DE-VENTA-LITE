@@ -23,6 +23,31 @@ function setModoMantenimiento(valor) {
   PropertiesService.getScriptProperties().setProperty('mantenimiento', valor ? 'true' : 'false');
 }
 
+// ── CÓDIGOS DE BARRAS: IGNORAR CEROS A LA IZQUIERDA ── (PropertiesService)
+// PROBLEMA QUE RESUELVE: Google Sheets interpreta un código como
+// "000753081010115" como un NÚMERO al guardarlo (por eso el campo "código"
+// llega vacío de ceros a la izquierda: queda "753081010115"). El lector de
+// código de barras / pistola, en cambio, SIEMPRE envía el código completo
+// tal como está impreso, con sus ceros originales. Al buscar ese código
+// exacto contra lo guardado (sin ceros), la búsqueda fallaba en Ventas,
+// Compras, Inventario, el editor de hoja, etc.
+//
+// Con esta opción ACTIVADA (interruptor verde en Ajustes), toda comparación
+// de códigos en el backend ignora los ceros a la izquierda de ambos lados
+// (el guardado y el buscado), sin importar cuántos sean. Con la opción
+// DESACTIVADA (rojo), se mantiene la comparación exacta de siempre.
+function getConfigIgnorarCeros() {
+  return PropertiesService.getScriptProperties().getProperty('ignorarCerosCodigo') === 'true';
+}
+function setConfigIgnorarCeros(valor) {
+  PropertiesService.getScriptProperties().setProperty('ignorarCerosCodigo', valor ? 'true' : 'false');
+}
+// Quita los ceros a la izquierda de un código sin importar cuántos sean.
+// Si el código son puros ceros, deja al menos uno (no lo vacía).
+function normalizarCodigo_(codigo) {
+  return String(codigo == null ? '' : codigo).trim().replace(/^0+(?=.)/, '').toLowerCase();
+}
+
 const HDR = {
   Categorias:    ["id","nombre","emoji","activo"],
   Productos:     ["id","nombre","código","categoría","precio_compra","precio_venta","stock","stock_minimo","imagen_url","favorito","activo","fecha_creado"],
@@ -65,7 +90,18 @@ function getData(nombre) {
 
 function findRow(hoja, id) {
   const vals = hoja.getDataRange().getValues();
-  for (let i = 1; i < vals.length; i++) if (String(vals[i][0]).toLowerCase() === String(id).toLowerCase() || String(vals[i][2]).toLowerCase() === String(id).toLowerCase()) return { row: vals[i], idx: i };
+  const idStr = String(id).toLowerCase();
+  const ignorarCeros = getConfigIgnorarCeros();
+  const idNorm = ignorarCeros ? normalizarCodigo_(id) : null;
+  for (let i = 1; i < vals.length; i++) {
+    if (String(vals[i][0]).toLowerCase() === idStr || String(vals[i][2]).toLowerCase() === idStr) return { row: vals[i], idx: i };
+    // Con la opción activada, si no hubo match exacto, se intenta de nuevo
+    // ignorando los ceros a la izquierda del código guardado y del buscado
+    // (soluciona el caso en que Google Sheets ya le quitó los ceros al
+    // código guardado, pero el lector de código de barras envía el código
+    // completo con sus ceros originales).
+    if (ignorarCeros && idNorm !== '' && normalizarCodigo_(vals[i][2]) === idNorm) return { row: vals[i], idx: i };
+  }
   return { row: null, idx: -1 };
 }
 
@@ -90,6 +126,37 @@ function crearHoja(nombre) {
   if (faltantes.length) {
     hoja.getRange(1, anchoActual + 1, 1, faltantes.length).setValues([faltantes]);
   }
+  if (nombre === H_PRODUCTOS) forzarColumnaTextoCodigo_();
+}
+
+// ── CAUSA RAÍZ del problema de los ceros a la izquierda ──
+// Por defecto, una celda de Google Sheets "adivina" el tipo de dato: si el
+// texto que se guarda parece un número (como "000753081010115"), Sheets lo
+// convierte a número de verdad y borra los ceros a la izquierda porque
+// numéricamente no significan nada (0007 = 7). Esto pasa SIN IMPORTAR cómo
+// se mande el dato desde el sistema (agregarProducto, editarProducto,
+// importarDatos): si la celda no está formateada como "texto plano", Sheets
+// hace la conversión igual.
+//
+// Este método fuerza la columna "código" (columna C) de Productos a formato
+// de Texto Plano ("@"), para TODAS las filas presentes y varias filas de
+// más por delante. Con la columna ya en texto, cualquier código nuevo que
+// se guarde (aunque empiece en "0") se conserva tal cual, con todos sus
+// ceros. Se ejecuta automáticamente cada vez que se crea la hoja o se corre
+// "Inicializar / Sincronizar BD" en Ajustes.
+//
+// IMPORTANTE: esto solo protege los códigos que se guarden DE AHORA EN
+// ADELANTE. No puede "adivinar" ni recuperar cuántos ceros tenía un código
+// que ya se guardó y ya perdió esos ceros (ese dato ya se perdió). Para los
+// códigos ya existentes que perdieron sus ceros, la solución es el
+// interruptor "Buscar ignorando ceros a la izquierda" en Ajustes.
+function forzarColumnaTextoCodigo_() {
+  try {
+    const hoja = sh(H_PRODUCTOS);
+    if (!hoja) return;
+    const filasNecesarias = Math.max(hoja.getLastRow() + 500, 2000);
+    hoja.getRange(2, 3, filasNecesarias - 1, 1).setNumberFormat('@');
+  } catch (e) {}
 }
 
 function doGet(e) {
@@ -102,6 +169,7 @@ function doGet(e) {
     }
     switch(p.action) {
       case 'getEstado':            r = {status:'success', mantenimiento: getModoMantenimiento()}; break;
+      case 'getConfigCodigoBarras': r = {status:'success', activo: getConfigIgnorarCeros()}; break;
       case 'activarMantenimiento': setModoMantenimiento(true);  log('Sistema','Mantenimiento','Activado');  r = {status:'success', message:'Mantenimiento activado.'}; break;
       case 'desactivarMantenimiento': setModoMantenimiento(false); log('Sistema','Mantenimiento','Desactivado'); r = {status:'success', message:'Mantenimiento desactivado.'}; break;
       case 'iniciar':   r = iniciarBD(); break;
@@ -135,7 +203,7 @@ function doPost(e) {
       case 'agregarCategoria': sh(H_CATEGORIAS).appendRow([uid(), req.nombre, req.emoji||'📦', true]); r = {status:'success', message:'Categoría agregada con éxito.'}; break;
       case 'editarCategoria': r = editarCategoria(req); break;
       case 'eliminarCategoria': r = eliminarEntidad(H_CATEGORIAS, req, 'Categoría'); break;
-      case 'agregarProducto': sh(H_PRODUCTOS).appendRow([uid(), req.nombre, req.codigo, req.categoria, parseFloat(req.precio_compra)||0, parseFloat(req.precio_venta)||0, parseInt(req.stock)||0, parseInt(req.stock_minimo)||5, req.imagen_url||'', false, true, new Date()]); r = {status:'success', message:'Producto registrado con éxito.'}; break;
+      case 'agregarProducto': forzarColumnaTextoCodigo_(); sh(H_PRODUCTOS).appendRow([uid(), req.nombre, String(req.codigo||''), req.categoria, parseFloat(req.precio_compra)||0, parseFloat(req.precio_venta)||0, parseInt(req.stock)||0, parseInt(req.stock_minimo)||5, req.imagen_url||'', false, true, new Date()]); r = {status:'success', message:'Producto registrado con éxito.'}; break;
       case 'editarProducto': r = editarProducto(req); break;
       case 'eliminarProducto': r = eliminarProducto(req); break;
       case 'restaurarProducto': r = restaurarProducto(req); break;
@@ -151,6 +219,11 @@ function doPost(e) {
       case 'enviarReporteResponsable': r = enviarReporteResponsableManual(req); break;
       case 'enviarFacturaCliente': r = enviarFacturaCliente(req); break;
       case 'registrarEnvioWhatsapp': r = registrarEnvioWhatsapp(req); break;
+      case 'setConfigCodigoBarras':
+        setConfigIgnorarCeros(!!req.activo);
+        log(req.usuario || 'admin', 'Configuración', `Búsqueda de código de barras ignorando ceros a la izquierda: ${req.activo ? 'ACTIVADA' : 'DESACTIVADA'}`);
+        r = {status:'success', message:'Configuración actualizada con éxito.', activo: getConfigIgnorarCeros()};
+        break;
       default: r = {status:'error', message:'Acción no reconocida'};
     }
     return resp(r);
@@ -226,7 +299,7 @@ function editarProducto(data) {
   if (data.precio_venta) hoja.getRange(idx+1, 6).setValue(parseFloat(data.precio_venta));
   if (data.stock !== undefined) hoja.getRange(idx+1, 7).setValue(parseInt(data.stock));
   if (data.categoria) hoja.getRange(idx+1, 4).setValue(data.categoria);
-  if (data.codigo) hoja.getRange(idx+1, 3).setValue(data.codigo);
+  if (data.codigo) { forzarColumnaTextoCodigo_(); hoja.getRange(idx+1, 3).setValue(String(data.codigo)); }
   log(data.usuario, 'Editar producto', data.nombre);
   return {status:'success', message:'Producto actualizado con éxito.'};
 }
@@ -305,8 +378,9 @@ function importarDatos(data) {
   // (Usado tanto por el importador manual como por "registro-masivo.html").
   if (data.tipo === 'productos' && Array.isArray(data.filas) && data.filas.length) {
     let ok = 0, err = 0;
+    forzarColumnaTextoCodigo_();
     data.filas.forEach(f => {
-      try { sh(H_PRODUCTOS).appendRow([uid(), f.nombre, f.codigo||'', f.categoria||'', parseFloat(f.precio_compra)||0, parseFloat(f.precio_venta)||0, parseInt(f.stock)||0, 5, '', false, true, new Date()]); ok++; } catch(e){ err++; }
+      try { sh(H_PRODUCTOS).appendRow([uid(), f.nombre, String(f.codigo||''), f.categoria||'', parseFloat(f.precio_compra)||0, parseFloat(f.precio_venta)||0, parseInt(f.stock)||0, 5, '', false, true, new Date()]); ok++; } catch(e){ err++; }
     });
     resultados.push(`Productos: ${ok} agregados${err ? `, ${err} con error` : ''}`);
     totalOk += ok;
