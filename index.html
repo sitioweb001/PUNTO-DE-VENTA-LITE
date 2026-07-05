@@ -477,6 +477,20 @@
   </div>
 </div>
 
+<!-- Modal selector cuando un código escaneado en el carrito coincide con más de un producto -->
+<div id="modalCodigoDuplicadoCarrito" class="modal hidden">
+  <div class="modal-content" style="max-width:460px;">
+    <div class="modal-header">
+      <h3 style="margin:0;"><i class="fas fa-triangle-exclamation" style="color:var(--danger-color);"></i> Código repetido</h3>
+      <button class="modal-close" onclick="cerrarModal('modalCodigoDuplicadoCarrito')"><i class="fas fa-times"></i></button>
+    </div>
+    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">
+      El código <b id="codigoDuplicadoCarritoTexto" style="font-family:monospace;"></b> está registrado en más de un producto activo. Elige cuál agregar al carrito:
+    </p>
+    <div id="codigoDuplicadoCarritoLista" style="display:grid; gap:8px;"></div>
+  </div>
+</div>
+
 <div id="scannerModal" class="modal hidden">
   <div class="modal-content" style="max-width:420px; padding:1.25rem; text-align:center;">
     <div class="modal-header">
@@ -1144,6 +1158,17 @@
           </div>
         </div>
 
+        <!-- Códigos Duplicados -->
+        <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg); padding:1.25rem;">
+          <h4 style="margin-bottom:0.5rem; color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em;">Códigos Duplicados</h4>
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">
+            Revisa si hay productos activos que comparten el mismo código de barras (por ejemplo, tras subir productos nuevos por lote). Úsalo cada vez que registres productos nuevos, sin tener que pedir el reporte aparte.
+          </p>
+          <button class="btn secondary-btn" onclick="verCodigosDuplicados()">
+            <i class="fas fa-clone"></i> Revisar Códigos Duplicados
+          </button>
+        </div>
+
         <!-- Ministerio de Hacienda -->
         <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg); padding:1.25rem;">
           <h4 style="margin-bottom:1rem; color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em;">Ministerio de Hacienda</h4>
@@ -1198,6 +1223,21 @@
           </button>
         </div>
 
+      </div>
+
+      <!-- Modal reporte de códigos duplicados -->
+      <div id="modalCodigosDuplicados" class="modal hidden">
+        <div class="modal-content" style="max-width:640px;">
+          <div class="modal-header">
+            <h3 style="margin:0;"><i class="fas fa-clone"></i> Códigos Duplicados</h3>
+            <button class="modal-close" onclick="cerrarModal('modalCodigosDuplicados')"><i class="fas fa-times"></i></button>
+          </div>
+          <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:1rem;">
+            Productos activos que comparten el mismo código de barras. El lector solo puede reconocer uno a la vez, así que conviene corregirle el código a los demás.
+          </p>
+          <div id="codigosDuplicadosContenido"></div>
+          <button class="btn secondary-btn" style="width:100%; margin-top:1rem;" onclick="cerrarModal('modalCodigosDuplicados')">Cerrar</button>
+        </div>
       </div>
 
       <!-- Modal contraseña borrar BD -->
@@ -1292,6 +1332,64 @@
       showToast('Error de conexión con el servidor.', 'error');
     }
   }
+
+  // ── Ajustes › Reporte de códigos duplicados ──
+  // Se guardan los grupos recibidos del servidor para poder referenciarlos
+  // por índice desde los botones "Corregir" sin tener que reinsertar el
+  // código (evita problemas de comillas/caracteres especiales en el HTML).
+  let gruposCodigosDuplicadosActual = [];
+
+  async function verCodigosDuplicados() {
+    const modal = document.getElementById('modalCodigosDuplicados');
+    const cont = document.getElementById('codigosDuplicadosContenido');
+    cont.innerHTML = '<p class="text-center text-muted" style="padding:1.5rem;"><i class="fas fa-spinner fa-spin"></i> Buscando códigos duplicados...</p>';
+    modal.classList.remove('hidden');
+    try {
+      const res = await fetch(`${SCRIPT_URL}?action=getCodigosDuplicados`).then(r => r.json());
+      if (res.status !== 'success') {
+        cont.innerHTML = `<p style="color:var(--danger-color); padding:1rem;">${res.message || 'No se pudo generar el reporte.'}</p>`;
+        return;
+      }
+      gruposCodigosDuplicadosActual = res.data || [];
+      if (!gruposCodigosDuplicadosActual.length) {
+        cont.innerHTML = `<p style="text-align:center; color:var(--success-color); padding:1.5rem;"><i class="fas fa-circle-check" style="font-size:1.6rem; display:block; margin-bottom:0.5rem;"></i>No hay códigos duplicados. Todo en orden.</p>`;
+        return;
+      }
+      cont.innerHTML = `
+        <p style="font-size:0.85rem; color:var(--danger-color); margin-bottom:1rem;">
+          <i class="fas fa-triangle-exclamation"></i> ${gruposCodigosDuplicadosActual.length} código(s) repetido(s), entre ${res.total_productos || 0} productos.
+        </p>
+        ${gruposCodigosDuplicadosActual.map((grupo, i) => `
+          <div style="background:var(--bg-main); border:1px solid var(--border-color); border-radius:var(--radius); padding:0.9rem; margin-bottom:0.9rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:0.6rem;">
+              <b style="font-family:monospace; word-break:break-all;">${grupo[0].codigo}</b>
+              <button class="btn secondary-btn" style="padding:4px 10px; font-size:0.78rem; white-space:nowrap;" onclick="corregirDuplicadoEnEditor(${i})">
+                <i class="fas fa-pen"></i> Corregir
+              </button>
+            </div>
+            <ul style="margin:0; padding-left:1.1rem; font-size:0.85rem; color:var(--text-muted);">
+              ${grupo.map(p => `<li>${p.nombre}${p.categoria ? ` <span style="opacity:0.7;">(${p.categoria})</span>` : ''} — stock: ${p.stock}</li>`).join('')}
+            </ul>
+          </div>
+        `).join('')}
+      `;
+    } catch(e) {
+      cont.innerHTML = '<p style="color:var(--danger-color); padding:1rem;">Error de conexión con el servidor.</p>';
+    }
+  }
+
+  // Abre el Editor de Hoja de Cálculo ya filtrado por el código en conflicto,
+  // para que se le pueda cambiar el código a uno de los productos ahí mismo.
+  function corregirDuplicadoEnEditor(indiceGrupo) {
+    const grupo = gruposCodigosDuplicadosActual[indiceGrupo];
+    if (!grupo || !grupo.length) return;
+    const codigo = grupo[0].codigo;
+    cerrarModal('modalCodigosDuplicados');
+    abrirEditorHojaCalculo();
+    document.getElementById('eh_buscar').value = codigo;
+    filtrarEditorHoja();
+  }
+
   // ── Editor de hoja de cálculo: estado del buscador + scroll virtual ──
   let editorHojaFiltrado = [];      // productos visibles según el buscador
   let editorHojaEdiciones = {};     // id -> valores sin confirmar todavía (para no perderlos al reciclar filas)
@@ -2646,11 +2744,11 @@
     const val = e.target.value.trim();
     if (!val) { document.getElementById('v_sugerencias').classList.add('hidden'); return; }
     
-    const exactItem = inventarioGlobal.find(p => codigosCoinciden(p['código'], val));
-    if (exactItem) {
-      agregarItemAlCarrito(exactItem);
+    const coincidenciasExactas = inventarioGlobal.filter(p => codigosCoinciden(p['código'], val));
+    if (coincidenciasExactas.length) {
       e.target.value = '';
       document.getElementById('v_sugerencias').classList.add('hidden');
+      resolverCoincidenciasCodigoCarrito(val, coincidenciasExactas);
       return;
     }
     
@@ -2665,12 +2763,42 @@
   });
 
   function procesarLecturaCodigoBarrasPOS(codigo) {
-    const item = inventarioGlobal.find(p => codigosCoinciden(p['código'], codigo));
-    if (item) {
-      agregarItemAlCarrito(item);
-    } else {
+    const coincidencias = inventarioGlobal.filter(p => codigosCoinciden(p['código'], codigo));
+    resolverCoincidenciasCodigoCarrito(codigo, coincidencias);
+  }
+
+  // ── Código repetido en el carrito ──
+  // Si un código escaneado/tecleado en Ventas coincide con MÁS DE UN
+  // producto activo (por ejemplo, un duplicado que ya existía antes de que
+  // codigoColisiona_() empezara a bloquear los nuevos), en vez de agregar
+  // "el primero que aparezca" al carrito, se muestra el listado completo de
+  // coincidencias para que el usuario elija cuál es el correcto.
+  let productosCodigoDuplicadoCarritoActual = [];
+
+  function resolverCoincidenciasCodigoCarrito(codigo, coincidencias) {
+    if (!coincidencias.length) {
       showToast(`El código ${codigo} no está registrado.`, 'warning');
+      return;
     }
+    if (coincidencias.length === 1) {
+      agregarItemAlCarrito(coincidencias[0]);
+      return;
+    }
+    productosCodigoDuplicadoCarritoActual = coincidencias;
+    document.getElementById('codigoDuplicadoCarritoTexto').textContent = codigo;
+    document.getElementById('codigoDuplicadoCarritoLista').innerHTML = coincidencias.map((p, i) => `
+      <button class="btn secondary-btn" style="width:100%; display:flex; justify-content:space-between; align-items:center; text-align:left;" onclick="elegirProductoCodigoDuplicadoCarrito(${i})">
+        <span>${p.nombre}</span>
+        <span style="opacity:0.75; white-space:nowrap; margin-left:10px;">$${parseFloat(p.precio_venta).toFixed(2)} · stock ${p.stock}</span>
+      </button>
+    `).join('');
+    document.getElementById('modalCodigoDuplicadoCarrito').classList.remove('hidden');
+  }
+
+  function elegirProductoCodigoDuplicadoCarrito(indice) {
+    const p = productosCodigoDuplicadoCarritoActual[indice];
+    cerrarModal('modalCodigoDuplicadoCarrito');
+    if (p) agregarItemAlCarrito(p);
   }
 
   // ═══════════════ LECTOR USB DE CÓDIGO DE BARRAS (MODO GATILLO) ═══════════════

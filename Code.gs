@@ -48,6 +48,70 @@ function normalizarCodigo_(codigo) {
   return String(codigo == null ? '' : codigo).trim().replace(/^0+(?=.)/, '').toLowerCase();
 }
 
+// ── EVITAR CÓDIGOS CHOCADOS (dos productos activos con el mismo código) ──
+// PROBLEMA QUE RESUELVE: antes no existía NINGÚN control que impidiera
+// guardar un producto con un código que ya usa otro (por ejemplo, un código
+// corto asignado a mano como "22" para un producto sin código de barras
+// real). Si eso pasaba, el lector de código de barras / la búsqueda se
+// quedaban con el PRIMER producto que encontraban con ese código —
+// normalmente el más viejo — y por eso un escaneo podía terminar
+// registrando un producto totalmente distinto al que se escaneó
+// (ej. "escaneo algo y me registra un jabón").
+// Esta función revisa, contra todos los productos ACTIVOS, si el código
+// nuevo ya está en uso. Si el interruptor "ignorar ceros a la izquierda"
+// está activado, la comparación también ignora esos ceros de ambos lados,
+// igual que hace la búsqueda real (findRow / normalizarCodigo_), para que
+// el chequeo detecte exactamente los mismos choques que vería el lector.
+function codigoColisiona_(codigoNuevo, idExcluir) {
+  const codStr = String(codigoNuevo == null ? '' : codigoNuevo).trim();
+  if (!codStr) return null; // código vacío: no se puede chocar contra nada
+  const ignorarCeros = getConfigIgnorarCeros();
+  const codNorm = ignorarCeros ? normalizarCodigo_(codStr) : codStr.toLowerCase();
+  const hoja = sh(H_PRODUCTOS);
+  if (!hoja || hoja.getLastRow() < 2) return null;
+  const vals = hoja.getDataRange().getValues();
+  for (let i = 1; i < vals.length; i++) {
+    const activo = vals[i][10];
+    if (!(activo === true || activo === 'true')) continue; // los inactivos/eliminados no cuentan
+    if (idExcluir && String(vals[i][0]) === String(idExcluir)) continue; // no chocar contra sí mismo al editar
+    const otro = String(vals[i][2] == null ? '' : vals[i][2]).trim();
+    if (!otro) continue;
+    const otroNorm = ignorarCeros ? normalizarCodigo_(otro) : otro.toLowerCase();
+    if (otroNorm === codNorm) return { id: vals[i][0], nombre: vals[i][1], codigo: otro };
+  }
+  return null;
+}
+
+// ── REPORTE DE CÓDIGOS DUPLICADOS ──
+// Agrupa los productos ACTIVOS que comparten el mismo código de barras,
+// usando el mismo criterio de comparación que usa el sistema en vivo
+// (exacto, o ignorando ceros a la izquierda si esa opción está activada en
+// Ajustes › Validación de Código de Barras). Los productos sin código no
+// se consideran entre sí, porque un código vacío no "choca" contra otro.
+// Esto sirve para encontrar duplicados que ya existían ANTES de que
+// codigoColisiona_() empezara a bloquear los nuevos (por ejemplo, productos
+// cargados por un lote antiguo, o editados directamente en la hoja).
+function getCodigosDuplicados() {
+  const ignorarCeros = getConfigIgnorarCeros();
+  const productos = (getData(H_PRODUCTOS).data || []).filter(p => p.activo === true || p.activo === 'true');
+  const grupos = {};
+  productos.forEach(p => {
+    const codigo = String(p['código'] == null ? '' : p['código']).trim();
+    if (!codigo) return;
+    const clave = ignorarCeros ? normalizarCodigo_(codigo) : codigo.toLowerCase();
+    if (!grupos[clave]) grupos[clave] = [];
+    grupos[clave].push({ id: p.id, nombre: p.nombre, codigo: codigo, categoria: p['categoría'], stock: p.stock, precio_venta: p.precio_venta });
+  });
+  const duplicados = Object.keys(grupos).map(k => grupos[k]).filter(g => g.length > 1);
+  duplicados.sort((a, b) => b.length - a.length);
+  return {
+    status: 'success',
+    data: duplicados,
+    total_grupos: duplicados.length,
+    total_productos: duplicados.reduce((s, g) => s + g.length, 0)
+  };
+}
+
 const HDR = {
   Categorias:    ["id","nombre","emoji","activo"],
   Productos:     ["id","nombre","código","categoría","precio_compra","precio_venta","stock","stock_minimo","imagen_url","favorito","activo","fecha_creado"],
@@ -176,6 +240,7 @@ function doGet(e) {
       case 'resetear':  r = resetearBD(); break;
       case 'getCategorias': r = getData(H_CATEGORIAS); break;
       case 'getInventario': r = {status:'success', data: (getData(H_PRODUCTOS).data || []).filter(x => x.activo === true || x.activo === 'true' || x.activo === 1)}; break;
+      case 'getCodigosDuplicados': r = getCodigosDuplicados(); break;
       case 'getVentas': r = getVentasConDetalle(p.fecha_inicio, p.fecha_fin); break;
       case 'getReporte': r = getReporte(p.tipo, p.fecha_inicio, p.fecha_fin); break;
       case 'getPapelera': r = getData(H_PAPELERA); break;
@@ -203,7 +268,17 @@ function doPost(e) {
       case 'agregarCategoria': sh(H_CATEGORIAS).appendRow([uid(), req.nombre, req.emoji||'📦', true]); r = {status:'success', message:'Categoría agregada con éxito.'}; break;
       case 'editarCategoria': r = editarCategoria(req); break;
       case 'eliminarCategoria': r = eliminarEntidad(H_CATEGORIAS, req, 'Categoría'); break;
-      case 'agregarProducto': forzarColumnaTextoCodigo_(); sh(H_PRODUCTOS).appendRow([uid(), req.nombre, String(req.codigo||''), req.categoria, parseFloat(req.precio_compra)||0, parseFloat(req.precio_venta)||0, parseInt(req.stock)||0, parseInt(req.stock_minimo)||5, req.imagen_url||'', false, true, new Date()]); r = {status:'success', message:'Producto registrado con éxito.'}; break;
+      case 'agregarProducto': {
+        const colisionAgregar = req.codigo ? codigoColisiona_(req.codigo, null) : null;
+        if (colisionAgregar) {
+          r = {status:'error', message:`Ese código ya lo tiene registrado "${colisionAgregar.nombre}" (código guardado: "${colisionAgregar.codigo}"). Usa un código distinto para que el lector no los confunda.`};
+        } else {
+          forzarColumnaTextoCodigo_();
+          sh(H_PRODUCTOS).appendRow([uid(), req.nombre, String(req.codigo||''), req.categoria, parseFloat(req.precio_compra)||0, parseFloat(req.precio_venta)||0, parseInt(req.stock)||0, parseInt(req.stock_minimo)||5, req.imagen_url||'', false, true, new Date()]);
+          r = {status:'success', message:'Producto registrado con éxito.'};
+        }
+        break;
+      }
       case 'editarProducto': r = editarProducto(req); break;
       case 'eliminarProducto': r = eliminarProducto(req); break;
       case 'restaurarProducto': r = restaurarProducto(req); break;
@@ -294,6 +369,10 @@ function registrarCompra(data) {
 function editarProducto(data) {
   const hoja = sh(H_PRODUCTOS); const {idx} = findRow(hoja, data.id);
   if (idx < 0) return {status:'error', message:'No encontrado.'};
+  if (data.codigo) {
+    const colisionEditar = codigoColisiona_(data.codigo, data.id);
+    if (colisionEditar) return {status:'error', message:`Ese código ya lo tiene registrado "${colisionEditar.nombre}" (código guardado: "${colisionEditar.codigo}"). Usa un código distinto para que el lector no los confunda.`};
+  }
   if (data.nombre) hoja.getRange(idx+1, 2).setValue(data.nombre);
   if (data.precio_compra) hoja.getRange(idx+1, 5).setValue(parseFloat(data.precio_compra));
   if (data.precio_venta) hoja.getRange(idx+1, 6).setValue(parseFloat(data.precio_venta));
@@ -378,11 +457,38 @@ function importarDatos(data) {
   // (Usado tanto por el importador manual como por "registro-masivo.html").
   if (data.tipo === 'productos' && Array.isArray(data.filas) && data.filas.length) {
     let ok = 0, err = 0;
+    const conflictos = [];
     forzarColumnaTextoCodigo_();
+    const ignorarCeros = getConfigIgnorarCeros();
+    // Códigos ya agregados EN ESTE MISMO LOTE (para detectar choques entre
+    // dos productos nuevos que se están subiendo juntos, no solo contra lo
+    // que ya había en la base de datos).
+    const codigosDeEsteLote = [];
     data.filas.forEach(f => {
-      try { sh(H_PRODUCTOS).appendRow([uid(), f.nombre, String(f.codigo||''), f.categoria||'', parseFloat(f.precio_compra)||0, parseFloat(f.precio_venta)||0, parseInt(f.stock)||0, 5, '', false, true, new Date()]); ok++; } catch(e){ err++; }
+      const codStr = String(f.codigo || '').trim();
+      let colision = null;
+      if (codStr) {
+        colision = codigoColisiona_(codStr, null);
+        if (!colision) {
+          const norm = ignorarCeros ? normalizarCodigo_(codStr) : codStr.toLowerCase();
+          const chocaEnLote = codigosDeEsteLote.find(c => c.norm === norm);
+          if (chocaEnLote) colision = { nombre: chocaEnLote.nombre, codigo: chocaEnLote.codigo };
+        }
+      }
+      if (colision) {
+        err++;
+        conflictos.push(`"${f.nombre}" (código "${codStr}") choca con "${colision.nombre}" (código "${colision.codigo}")`);
+        return;
+      }
+      try {
+        sh(H_PRODUCTOS).appendRow([uid(), f.nombre, codStr, f.categoria||'', parseFloat(f.precio_compra)||0, parseFloat(f.precio_venta)||0, parseInt(f.stock)||0, 5, '', false, true, new Date()]);
+        if (codStr) codigosDeEsteLote.push({ norm: ignorarCeros ? normalizarCodigo_(codStr) : codStr.toLowerCase(), nombre: f.nombre, codigo: codStr });
+        ok++;
+      } catch(e){ err++; }
     });
-    resultados.push(`Productos: ${ok} agregados${err ? `, ${err} con error` : ''}`);
+    let msgProductos = `Productos: ${ok} agregados${err ? `, ${err} con error` : ''}`;
+    if (conflictos.length) msgProductos += `. NO se registraron por código repetido: ${conflictos.join(' | ')}`;
+    resultados.push(msgProductos);
     totalOk += ok;
   }
 
