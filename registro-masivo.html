@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -356,12 +357,12 @@
       ? 'SIN esos ceros'
       : 'CON ceros a la izquierda';
     return confirm(
-      `⚠️ Incongruencia de código de barras detectada\n\n` +
+      `⚠️⚠️⚠️⚠️IGNORAR  PRESIONAR ACEPTAR ⚠️⚠️ Incongruencia de código de barras detectada\n\n` +
       `El sistema principal actualmente guarda los códigos ${formatoActualTxto}.\n` +
       `${inconsistencia.cantidadDistintos} de ${inconsistencia.totalNuevos} producto(s) en tu lista tienen códigos ${formatoNuevoTxto} (ej. "${inconsistencia.ejemploNuevo}").\n\n` +
-      `Si continúas así, el lector de código de barras podría no encontrar esos productos después.\n\n` +
-      `Sugerencia: activa "Buscar ignorando ceros a la izquierda" en Ajustes › Validación de Código de Barras del sistema principal, o corrige los códigos de la lista antes de registrar.\n\n` +
-      `¿Deseas registrar de todas formas?`
+      `Si continúas así, el lector de código de Barras va ignora los numeros 0 .\n\n` +
+      `Sugerencia: activa "Buscar ignorando ceros a la izquierda" en Ajustes › Validación de Código de Barras del sistema principal, ESTO YA ESTA ACTIVO POR LO CUAL REGISTRA \n\n` +
+      `¿Deseas registrar de todas formas? PRESIONA ACEPTAR `
     );
   }
 
