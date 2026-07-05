@@ -11,10 +11,9 @@ Este mismo instructivo está integrado dentro del sistema: se puede abrir en cua
 2. [Estructura de Archivos](#-estructura-de-archivos)
 3. [Módulos del Sistema](#-módulos-del-sistema)
 4. [Guía de Uso Rápido](#-guía-de-uso-rápido)
-5. [Ministerio de Hacienda (Archivos G / E)](#-ministerio-de-hacienda-archivos-g--e)
-6. [Escáner de Código de Barras](#-escáner-de-código-de-barras)
-7. [Instalación y Despliegue](#-instalación-y-despliegue)
-8. [Flujo de Datos (Cómo funciona)](#-flujo-de-datos-cómo-funciona)
+5. [Escáner de Código de Barras](#-escáner-de-código-de-barras)
+6. [Instalación y Despliegue](#-instalación-y-despliegue)
+7. [Flujo de Datos (Cómo funciona)](#-flujo-de-datos-cómo-funciona)
 
 ---
 
@@ -26,10 +25,8 @@ Este mismo instructivo está integrado dentro del sistema: se puede abrir en cua
 * **Cálculo de Vuelto/Cambio:** automático en tiempo real al ingresar el efectivo del cliente.
 * **Registro Masivo de Productos:** herramienta aparte para dar de alta muchos productos escaneando código por código, con exportación a CSV compatible con el Importador.
 * **Modo Mantenimiento:** permite bloquear el acceso al sistema para todos los dispositivos mientras se hacen cambios, y desactivarlo con contraseña.
-* **Ministerio de Hacienda (Archivos G/E):** módulo dentro de Ajustes para archivar documentos (PDF, CSV, JSON) en dos categorías —Generales y Específicos— con histórico, descarga y eliminación.
 * **Historial de Versiones:** insignia en la barra lateral que muestra los cambios de cada versión del sistema.
-* **Ajustes Protegidos:** el módulo de Ajustes pide una contraseña antes de mostrar su contenido, para evitar que se toque por accidente.
-* **Diseño Responsivo y Dark Mode:** adaptable a pantallas pequeñas, con menú lateral colapsable. Las tablas conservan su ancho natural y se deslizan horizontalmente con el dedo en el celular, sin comprimir ni cortar el texto.
+* **Diseño Responsivo y Dark Mode:** adaptable a pantallas pequeñas, con menú lateral colapsable y tablas con scroll horizontal.
 * **Feedback Visual Inmediato:** parpadeo verde de éxito, notificaciones (toasts) flotantes y spinner de carga.
 * **Backend Serverless:** sin costos de hosting; los datos se guardan directamente en tu cuenta de Google Sheets.
 
@@ -44,7 +41,6 @@ El proyecto se compone de páginas HTML autocontenidas (cada una trae su propio 
 | `index.html` | Frontend principal | Toda la aplicación: Login, Ventas (POS), Inventario, Registro de Producto, Categorías, Compras, Reportes, Papelera, Importador, Soporte y Ajustes. HTML, CSS y JS van en el mismo archivo. |
 | `registro-masivo.html` | Frontend auxiliar | Página independiente para dar de alta muchos productos en fila usando la cámara. Se abre desde **Importador → Registro de Productos para Base de Datos**. Comparte la misma `SCRIPT_URL` que `index.html`. |
 | `instructivo.md` | Documentación | Este archivo. Debe vivir en la **misma carpeta** que `index.html` para que el botón **Soporte → Instructivo** pueda leerlo y mostrarlo dentro de la app. |
-| `logo-mh.png` | Recurso gráfico | Logo del Ministerio de Hacienda que se muestra en **Ajustes → Ministerio de Hacienda**. Debe vivir en la **misma carpeta** que `index.html`; si falta, el sistema muestra automáticamente un ícono "MH" de respaldo en su lugar. |
 | Código de `Apps Script` (`.gs`) | Backend | Vive dentro de tu Google Sheet (Extensiones → Apps Script). Recibe las peticiones de ambas páginas HTML y lee/escribe la base de datos. |
 
 > Ambos archivos HTML cargan librerías externas por CDN (Font Awesome, `html5-qrcode` para el escáner, `xlsx` y `jsPDF` para exportar reportes, y `marked`/`DOMPurify` para renderizar este instructivo), así que necesitas conexión a internet la primera vez que se cargan.
@@ -64,7 +60,7 @@ El proyecto se compone de páginas HTML autocontenidas (cada una trae su propio 
 | 🗑️ **Papelera** | Historial de productos eliminados, con opción de restaurarlos al inventario activo. |
 | 📥 **Importador** | Carga catálogos masivos desde `.csv` o `.json`, y enlaza a la herramienta de **Registro Masivo** para armar ese CSV escaneando producto por producto. |
 | 🆘 **Soporte** | Envío de tickets de soporte, historial de reportes enviados, y el botón **Instructivo** que abre este documento dentro de la app. |
-| 🛠️ **Ajustes** | Protegido con contraseña. Modo Oscuro/Claro, Modo Mantenimiento, conexión/inicialización de la Base de Datos en Google Sheets, y el submódulo **Ministerio de Hacienda** (archivo de documentos). |
+| 🛠️ **Ajustes** | Modo Oscuro/Claro, Modo Mantenimiento, y conexión/inicialización de la Base de Datos en Google Sheets. |
 
 ---
 
@@ -84,27 +80,6 @@ En el POS, una vez tengas productos en el carrito:
 1. Ve al módulo **Soporte**.
 2. Presiona el botón **Instructivo** junto al título.
 3. El sistema carga `instructivo.md` (debe estar en la misma carpeta que `index.html`) y lo muestra ya formateado, sin salir de la app.
-
-### Entrar a Ajustes
-El módulo **Ajustes** está protegido: al presionarlo por primera vez en cada sesión, el sistema pide una contraseña antes de mostrar su contenido. Solicítala a un administrador si no la tienes. Una vez ingresada correctamente, queda desbloqueada mientras la página siga abierta (se vuelve a pedir si recargas).
-
----
-
-## 🏛️ Ministerio de Hacienda (Archivos G / E)
-
-Submódulo dentro de **Ajustes** para archivar documentos oficiales del Ministerio de Hacienda directamente desde el sistema, sin depender de una carpeta aparte.
-
-* **Logo:** se muestra arriba del módulo (`logo-mh.png`). Si el archivo no está presente en el hosting, aparece automáticamente un ícono "MH" de respaldo, sin romper la pantalla.
-* **Dos categorías de archivo:**
-  * 📁 **Archivos G (Generales):** documentos de uso general.
-  * 📁 **Archivos E (Específicos):** documentos puntuales o de un trámite en particular.
-* **Subir un archivo:**
-  1. Elige la categoría (G o E) con los botones de arriba.
-  2. Selecciona el archivo (PDF, CSV o JSON).
-  3. Presiona **Subir Archivo**.
-  * Límite aproximado de **30 KB por archivo**, ya que el contenido se guarda directamente como texto (base64) dentro de la hoja de cálculo — no se necesita conectar Google Drive ni configurar nada extra.
-* **Histórico:** lista, debajo del botón de subida, todos los archivos ya guardados en la categoría seleccionada (nombre, tipo, tamaño, fecha y quién lo subió), con botones para **descargar** o **eliminar** cada uno.
-* Cambiar entre "Archivos G" y "Archivos E" recarga el histórico para mostrar solo los archivos de esa categoría.
 
 ---
 
@@ -128,8 +103,8 @@ Submódulo dentro de **Ajustes** para archivar documentos oficiales del Minister
 6. Haz clic en **Implementar > Nueva Implementación**. Selecciona tipo **Aplicación Web**, acceso "Cualquier persona".
 7. Copia la URL de la aplicación web que te generará.
 8. Pega esa URL en la constante `SCRIPT_URL` de **ambos** archivos: `index.html` y `registro-masivo.html`.
-9. Sube `index.html`, `registro-masivo.html`, `instructivo.md` y `logo-mh.png` a la **misma carpeta** en tu hosting (o ábrelos a través de un servidor local; el botón Instructivo necesita `fetch()`, que no funciona abriendo el archivo con doble clic desde el explorador).
-10. Abre `index.html` en el navegador y ve a **Ajustes > Conectar / Inicializar Hojas BD** para generar las tablas (incluye la hoja `HaciendaArchivos` para el módulo de Hacienda).
+9. Sube `index.html`, `registro-masivo.html` e `instructivo.md` a la **misma carpeta** en tu hosting (o ábrelos a través de un servidor local; el botón Instructivo necesita `fetch()`, que no funciona abriendo el archivo con doble clic desde el explorador).
+10. Abre `index.html` en el navegador y ve a **Ajustes > Conectar / Inicializar Hojas BD** para generar las tablas.
 
 ---
 
@@ -137,6 +112,6 @@ Submódulo dentro de **Ajustes** para archivar documentos oficiales del Minister
 
 1. **Interacción del Usuario:** el usuario interactúa con la interfaz gráfica de `index.html` o `registro-masivo.html`.
 2. **Procesamiento Local:** el JavaScript embebido procesa eventos (escanear, escribir, sumar al carrito) sin consultar al servidor hasta que es estrictamente necesario, para que la app se sienta rápida.
-3. **Petición HTTP (Fetch):** al guardar un producto, cobrar una venta, enviar un ticket o subir un archivo a Hacienda, la página empaqueta los datos en JSON y los envía a la URL de Google Apps Script (`SCRIPT_URL`).
+3. **Petición HTTP (Fetch):** al guardar un producto, cobrar una venta o enviar un ticket, la página empaqueta los datos en JSON y los envía a la URL de Google Apps Script (`SCRIPT_URL`).
 4. **Respuesta del Servidor:** el backend en Apps Script intercepta la petición, localiza la fila/pestaña correspondiente en Google Sheets, actualiza los datos y devuelve `{"status": "success", "message": "..."}`.
 5. **Feedback Visual:** el frontend recibe el *success*, dispara la animación de éxito, muestra el mensaje emergente y actualiza las tablas visibles en pantalla.
