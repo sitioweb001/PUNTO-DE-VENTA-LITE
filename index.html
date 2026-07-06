@@ -921,12 +921,13 @@
           <div class="form-group hidden" id="bloqueAgregarProductoOffline">
             <label><i class="fas fa-pen"></i> Anotar producto a mano (sin conexión):</label>
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <input type="text" id="vo_nombre" placeholder="Nombre del producto..." autocomplete="off" style="flex:2; min-width:140px;">
+              <input type="text" id="vo_nombre" placeholder="Nombre del producto..." autocomplete="off" oninput="buscarSugerenciaOfflineCarrito(this.value)" style="flex:2; min-width:140px;">
               <input type="number" id="vo_cantidad" placeholder="Cant." min="1" value="1" style="flex:0 0 70px;">
               <input type="number" id="vo_precio" placeholder="Precio aprox. (opcional)" min="0" step="0.01" style="flex:1; min-width:130px;">
               <button type="button" class="btn primary-btn" onclick="agregarItemManualCarrito()" style="flex:0 0 auto;"><i class="fas fa-plus"></i> Agregar</button>
             </div>
-            <p style="font-size:0.75rem; color:var(--text-muted); margin:6px 0 0;"><i class="fas fa-circle-info"></i> El precio es opcional: si no lo sabes exacto, déjalo vacío y se corregirá al verificar la venta cuando vuelva la conexión.</p>
+            <div id="vo_sugerencias" style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius); max-height:180px; overflow-y:auto; margin-top:4px;" class="hidden"></div>
+            <p style="font-size:0.75rem; color:var(--text-muted); margin:6px 0 0;"><i class="fas fa-circle-info"></i> Si hay una copia local del inventario, te sugerimos coincidencias con precio real. Si no encuentras el producto, escribe el precio aproximado: se corregirá al verificar la venta cuando vuelva la conexión.</p>
           </div>
           <div class="form-group" style="margin-top:1rem;">
             <label>Nombre del Cliente (Opcional):</label>
@@ -1037,8 +1038,10 @@
             <option value="nombre_asc">🔤 Nombre: A-Z</option>
           </select>
           <button class="btn secondary-btn" onclick="abrirEditorHojaCalculo()" style="white-space:nowrap;"><i class="fas fa-table-cells"></i> Editar en hoja de cálculo</button>
+          <button class="btn secondary-btn" onclick="actualizarBaseLocalInventario()" style="white-space:nowrap;"><i class="fas fa-cloud-arrow-down"></i> Actualizar Base Local</button>
         </div>
         <p style="font-size:0.75rem; color:var(--text-muted); margin:6px 0 0; grid-column:1/-1;"><i class="fas fa-barcode"></i> Tu lector USB funciona en cualquier momento, sin necesidad de hacer clic aquí.</p>
+        <p id="notaInventarioLocal" class="hidden" style="font-size:0.75rem; color:var(--warning-color); margin:2px 0 0; grid-column:1/-1;"></p>
       </div>
       <div class="data-table-container">
         <table class="data-table">
@@ -1428,6 +1431,17 @@
   const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwbYNUf0--D2RVqFyaBZHFxQuClX6RBybuhK6kJU9Q02NZyICUIXEnUWIR1x25xMnfMrA/exec";
 
   let inventarioGlobal = [], carrito = [];
+  // Fecha (ISO) del último "inventario.json" leído del disco, o null si
+  // todavía no se ha cargado ningún respaldo local en esta sesión.
+  let fechaInventarioLocal = null;
+
+  // ── ¿Este index.html se está viendo dentro del .exe (app.py + pywebview)? ──
+  // pywebview inyecta window.pywebview.api con las funciones expuestas
+  // desde Python (ver ApiEscritorio en app.py) apenas la ventana termina
+  // de cargar. Si no existe, es porque se abrió en un navegador normal.
+  function estaEnAppEscritorio() {
+    return !!(window.pywebview && window.pywebview.api);
+  }
 
   // ═══════════════════════════════════════════════════════════════════
   // ══ MODO VENTA SIN CONEXIÓN (offline) ════════════════════════════════
@@ -1570,13 +1584,67 @@
     const precio = precioTxt !== '' ? parseFloat(precioTxt) : 0;
     if (!nombre) { marcarCampoInvalido(nombreInput); showToast('Escribe el nombre del producto.', 'error'); nombreInput.focus(); return; }
     limpiarCampoInvalido(nombreInput);
-    carrito.push({ producto_id: null, nombre: nombre, cantidad: cantidad, precio_unitario: precio, manual: true });
+    // Si el nombre en pantalla sigue siendo el de la sugerencia real que el
+    // usuario eligió (y no lo borró/editó después), se guarda el
+    // producto_id real: así, al reconciliar la venta cuando vuelva la
+    // conexión, ese producto queda emparejado automáticamente sin tener
+    // que buscarlo a mano de nuevo.
+    const coincideConSugerido = productoOfflineSeleccionado && productoOfflineSeleccionado.nombre === nombre;
+    carrito.push({
+      producto_id: coincideConSugerido ? productoOfflineSeleccionado.id : null,
+      nombre: nombre, cantidad: cantidad, precio_unitario: precio, manual: true
+    });
+    productoOfflineSeleccionado = null;
     document.getElementById('vo_nombre').value = '';
     document.getElementById('vo_cantidad').value = '1';
     document.getElementById('vo_precio').value = '';
+    document.getElementById('vo_sugerencias')?.classList.add('hidden');
     renderCarrito();
     dispararAccionExitosa(`Anotado: ${nombre}`);
     nombreInput.focus();
+  }
+
+  // ── Sugerencias con datos reales mientras se anota una venta sin
+  // conexión, usando la copia local del inventario si está disponible
+  // (inventarioGlobal ya viene de inventario.json cuando no hay
+  // internet — ver cargarInventarioLocalOffline). Si no hay copia local
+  // cargada, simplemente no aparecen sugerencias y se sigue anotando a
+  // mano como antes.
+  //
+  // Nota sobre el lector de código de barras: el lector USB en "modo
+  // gatillo" (ver PROCESAMIENTO GLOBAL más abajo) ya funciona igual haya
+  // o no internet, porque lee directo de inventarioGlobal sin tocar el
+  // servidor. Este bloque cubre el otro caso: cuando el cajero hace clic
+  // primero en este campo y ahí mismo dispara el lector — igual que el
+  // buscador de Ventas online, si lo tecleado/escaneado coincide EXACTO
+  // con un código guardado, se agrega directo al carrito sin esperar clic. ──
+  let productoOfflineSeleccionado = null;
+  function buscarSugerenciaOfflineCarrito(texto) {
+    productoOfflineSeleccionado = null;
+    const sug = document.getElementById('vo_sugerencias');
+    const val = texto.trim();
+    if (!val || !inventarioGlobal.length) { sug.classList.add('hidden'); return; }
+
+    const coincidenciasExactas = inventarioGlobal.filter(p => codigosCoinciden(p['código'], val));
+    if (coincidenciasExactas.length) {
+      document.getElementById('vo_nombre').value = '';
+      sug.classList.add('hidden');
+      resolverCoincidenciasCodigoCarrito(val, coincidenciasExactas);
+      return;
+    }
+
+    const matching = inventarioGlobal.filter(p => p.nombre.toLowerCase().includes(val.toLowerCase())).slice(0, 5);
+    if (matching.length) {
+      sug.innerHTML = matching.map(p => `<div style="padding:10px; border-bottom:1px solid var(--border-color); cursor:pointer;" onclick='seleccionarSugerenciaOfflineCarrito(${JSON.stringify(p)})'>${p.nombre} - $${parseFloat(p.precio_venta).toFixed(2)} <span style="color:var(--text-muted); font-size:0.75rem;">(stock: ${p.stock})</span></div>`).join('');
+      sug.classList.remove('hidden');
+    } else { sug.classList.add('hidden'); }
+  }
+  function seleccionarSugerenciaOfflineCarrito(p) {
+    productoOfflineSeleccionado = p;
+    document.getElementById('vo_nombre').value = p.nombre;
+    document.getElementById('vo_precio').value = parseFloat(p.precio_venta).toFixed(2);
+    document.getElementById('vo_sugerencias').classList.add('hidden');
+    document.getElementById('vo_cantidad').focus();
   }
 
   // ── Guardar la venta actual en la cola local (en vez de mandarla al servidor) ──
@@ -1593,7 +1661,7 @@
       pago_con: pagoCon,
       cambio_estimado: cambioEstimado,
       total_estimado: totalCarrito,
-      items: carrito.map(it => ({ nombre_manual: it.nombre, cantidad: it.cantidad, precio_estimado: it.precio_unitario || 0 }))
+      items: carrito.map(it => ({ nombre_manual: it.nombre, cantidad: it.cantidad, precio_estimado: it.precio_unitario || 0, producto_id: it.producto_id || null }))
     };
     const cola = obtenerColaVentasOffline();
     cola.push(venta);
@@ -1635,10 +1703,28 @@
     const venta = cola.find(v => v.id === id);
     if (!venta) return;
     ventaOfflineEnRevision = venta;
-    itemsReconciliacion = venta.items.map(it => ({
-      nombre_manual: it.nombre_manual, cantidad: it.cantidad, precio_estimado: it.precio_estimado,
-      producto_id: null, nombre_real: null, precio_real: null, stock_real: null
-    }));
+    itemsReconciliacion = venta.items.map(it => {
+      // Si el item ya se había emparejado con un producto real al momento
+      // de anotarlo sin conexión (usando la sugerencia de la copia local
+      // del inventario), se intenta emparejar de una vez contra los datos
+      // frescos de inventarioGlobal (que ya se recargó del servidor justo
+      // al recuperar la conexión), en vez de obligar a buscarlo a mano de
+      // nuevo. Si el producto ya no existe (lo borraron, etc.), se cae de
+      // vuelta al flujo manual de siempre.
+      if (it.producto_id) {
+        const real = inventarioGlobal.find(p => p.id === it.producto_id);
+        if (real) {
+          return {
+            nombre_manual: it.nombre_manual, cantidad: it.cantidad, precio_estimado: it.precio_estimado,
+            producto_id: real.id, nombre_real: real.nombre, precio_real: parseFloat(real.precio_venta), stock_real: real.stock
+          };
+        }
+      }
+      return {
+        nombre_manual: it.nombre_manual, cantidad: it.cantidad, precio_estimado: it.precio_estimado,
+        producto_id: null, nombre_real: null, precio_real: null, stock_real: null
+      };
+    });
     document.getElementById('rec_fecha').textContent = new Date(venta.fecha_local).toLocaleString('es-SV', { dateStyle:'medium', timeStyle:'short' });
     document.getElementById('rec_pago_con').value = venta.pago_con || 0;
     renderFilasReconciliacion();
@@ -1761,7 +1847,13 @@
   // (getConfigIgnorarCeros / normalizarCodigo_). Este ajuste vive en el
   // servidor (PropertiesService) para que sea el mismo en cualquier PC o
   // celular que abra el sistema, igual que el modo mantenimiento.
-  let configIgnorarCerosCodigo = false;
+  // Se cachea en localStorage porque, sin esta caché, si el fetch a
+  // getConfigCodigoBarras fallaba por falta de internet, el sistema
+  // asumía "false" (búsqueda exacta) sin importar cuál fuera el ajuste
+  // real guardado — rompiendo la lectura de código de barras offline en
+  // negocios que sí tienen "ignorar ceros" activado.
+  const CONFIG_IGNORAR_CEROS_KEY = 'pos_config_ignorar_ceros';
+  let configIgnorarCerosCodigo = localStorage.getItem(CONFIG_IGNORAR_CEROS_KEY) === '1';
 
   // Quita los ceros a la izquierda de un código de barras, sin importar
   // cuántos sean, SOLO si el interruptor de Ajustes está activado. Se usa
@@ -1782,8 +1874,14 @@
   async function cargarConfigCodigoBarras() {
     try {
       const res = await fetch(`${SCRIPT_URL}?action=getConfigCodigoBarras`).then(r => r.json());
-      configIgnorarCerosCodigo = res.status === 'success' ? !!res.activo : false;
-    } catch(e) { configIgnorarCerosCodigo = false; }
+      if (res.status === 'success') {
+        configIgnorarCerosCodigo = !!res.activo;
+        localStorage.setItem(CONFIG_IGNORAR_CEROS_KEY, configIgnorarCerosCodigo ? '1' : '0');
+      }
+    } catch(e) {
+      // Sin conexión: se mantiene el último valor conocido (el cacheado
+      // en localStorage al iniciar), en vez de forzar "desactivado".
+    }
     actualizarUIConfigCodigoBarras();
   }
 
@@ -1805,6 +1903,7 @@
       hideSpinner();
       if (res.status === 'success') {
         configIgnorarCerosCodigo = !!res.activo;
+        localStorage.setItem(CONFIG_IGNORAR_CEROS_KEY, configIgnorarCerosCodigo ? '1' : '0');
         actualizarUIConfigCodigoBarras();
         dispararAccionExitosa(configIgnorarCerosCodigo
           ? 'Búsqueda de código de barras ahora ignora los ceros a la izquierda.'
@@ -2276,9 +2375,9 @@
         categoriasGlobal = res.data;
         renderCategorias();
       }
-      await loadInventario();
-      await cargarConfigCodigoBarras();
-    } catch(e) { showToast('Error al conectar con el servidor.', 'error'); }
+    } catch(e) { /* sin categorías remotas: se sigue intentando cargar inventario abajo (con su propio respaldo offline) */ }
+    await loadInventario();
+    try { await cargarConfigCodigoBarras(); } catch(e) {}
     hideSpinner();
   }
 
@@ -2346,11 +2445,99 @@
       const res = await fetch(`${SCRIPT_URL}?action=getInventario`).then(r => r.json());
       if (res.status === 'success') {
         inventarioGlobal = res.data;
+        fechaInventarioLocal = null;
+        ocultarNotaInventarioLocal();
         paginaActual = 1;
         filtrarInventario();
         calcularResumenInventario();
       }
-    } catch(e) { showToast('Error al cargar inventario.', 'error'); }
+    } catch(e) {
+      // Sin conexión: en vez de dejar el inventario vacío, se intenta
+      // cargar la última copia local guardada con "Actualizar Base
+      // Local" (ver actualizarBaseLocalInventario y cargarInventarioLocalOffline).
+      const cargado = await cargarInventarioLocalOffline();
+      if (!cargado) showToast('Error al cargar inventario.', 'error');
+    }
+    hideSpinner();
+  }
+
+  // ── Carga inventario.json desde disco (app de escritorio) o desde la
+  // misma carpeta del hosting (navegador), para poder ver/buscar el
+  // catálogo real aunque no haya internet. Devuelve true si encontró y
+  // cargó datos, false si no había ningún respaldo local disponible. ──
+  async function cargarInventarioLocalOffline() {
+    try {
+      let contenido = null;
+      if (estaEnAppEscritorio()) {
+        contenido = await window.pywebview.api.leer_inventario_json();
+      } else {
+        const r = await fetch('inventario.json', { cache:'no-store' });
+        if (r.ok) contenido = await r.text();
+      }
+      if (!contenido) {
+        mostrarNotaInventarioLocal('No hay una copia local del inventario disponible. Conéctate a internet y usa "Actualizar Base Local" para poder trabajar sin conexión.');
+        return false;
+      }
+      const parsed = JSON.parse(contenido);
+      inventarioGlobal = parsed.productos || [];
+      fechaInventarioLocal = parsed.fecha_actualizacion || null;
+      paginaActual = 1;
+      filtrarInventario();
+      calcularResumenInventario();
+      const fechaTexto = fechaInventarioLocal ? new Date(fechaInventarioLocal).toLocaleString('es-SV', { dateStyle:'medium', timeStyle:'short' }) : 'desconocida';
+      mostrarNotaInventarioLocal(`Sin conexión: mostrando datos guardados localmente (última actualización: ${fechaTexto}). Los precios y existencias podrían no estar al día.`);
+      return true;
+    } catch(e) {
+      mostrarNotaInventarioLocal('No se pudo leer la copia local del inventario.');
+      return false;
+    }
+  }
+
+  function mostrarNotaInventarioLocal(texto) {
+    const nota = document.getElementById('notaInventarioLocal');
+    if (!nota) return;
+    nota.textContent = texto;
+    nota.classList.remove('hidden');
+  }
+  function ocultarNotaInventarioLocal() {
+    document.getElementById('notaInventarioLocal')?.classList.add('hidden');
+  }
+
+  // ── Botón "Actualizar Base Local": descarga el inventario real desde
+  // el servidor y lo guarda como inventario.json para poder usarlo sin
+  // conexión más adelante (ver instructivo.md). ──
+  async function actualizarBaseLocalInventario() {
+    if (sinConexion) { showToast('Necesitas conexión a internet para generar la copia local.', 'warning'); return; }
+    const confirmado = confirm('¿Deseas actualizar la base de datos local del inventario?\n\nSe descargará una copia actualizada que permitirá utilizar el sistema sin conexión a Internet.');
+    if (!confirmado) return;
+
+    showSpinner('Generando copia local del inventario...');
+    try {
+      const res = await fetch(`${SCRIPT_URL}?action=getInventario&_=${Date.now()}`, { cache:'no-store' }).then(r => r.json());
+      if (res.status !== 'success') { showToast(res.message || 'No se pudo obtener el inventario.', 'error'); hideSpinner(); return; }
+
+      const contenido = JSON.stringify({ fecha_actualizacion: new Date().toISOString(), productos: res.data }, null, 2);
+
+      if (estaEnAppEscritorio()) {
+        const r = await window.pywebview.api.guardar_inventario_json(contenido);
+        if (r && r.ok) showToast('Base de datos local actualizada correctamente (guardada junto al programa).', 'success');
+        else showToast('No se pudo guardar el archivo local: ' + (r && r.error ? r.error : 'error desconocido'), 'error');
+      } else {
+        // En navegador no se puede escribir directo en la carpeta por
+        // seguridad: se descarga el archivo y el usuario lo mueve a mano
+        // a la misma carpeta donde tiene index.html, reemplazando el
+        // inventario.json anterior si ya existía.
+        const blob = new Blob([contenido], { type:'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'inventario.json';
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+        showToast('Base de datos local descargada. Muévela a la misma carpeta de index.html, reemplazando el archivo anterior.', 'success');
+      }
+    } catch(e) {
+      showToast('Error de conexión al generar la copia local.', 'error');
+    }
     hideSpinner();
   }
 
