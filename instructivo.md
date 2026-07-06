@@ -24,7 +24,8 @@ Este mismo instructivo está integrado dentro del sistema: se puede abrir en cua
 * **Auto-Login:** doble clic sobre la tarjeta de inicio de sesión rellena las credenciales de acceso rápido.
 * **Cálculo de Vuelto/Cambio:** automático en tiempo real al ingresar el efectivo del cliente.
 * **Registro Masivo de Productos:** herramienta aparte para dar de alta muchos productos escaneando código por código, con exportación a CSV compatible con el Importador.
-* **Modo Mantenimiento:** permite bloquear el acceso al sistema para todos los dispositivos mientras se hacen cambios, y desactivarlo con contraseña.
+* **Modo Sin Conexión (Ventas + Inventario):** si se va el internet, el sistema no se bloquea. En Ventas se puede seguir cobrando anotando los productos a mano (con sugerencias automáticas si hay una copia local del inventario), y esas ventas quedan en una cola en el dispositivo hasta poder verificarlas contra la base de datos real cuando vuelva la conexión. En Inventario se puede seguir viendo/buscando el catálogo usando la última copia local guardada (`inventario.json`).
+* **Base de Datos Local (`inventario.json`):** desde Inventario, el botón **Actualizar Base Local** descarga una copia del inventario real para poder consultarlo sin internet. En el `.exe` de escritorio se guarda solo, en el navegador se descarga y hay que moverlo a mano a la carpeta.
 * **Historial de Versiones:** insignia en la barra lateral que muestra los cambios de cada versión del sistema.
 * **Diseño Responsivo y Dark Mode:** adaptable a pantallas pequeñas, con menú lateral colapsable y tablas con scroll horizontal.
 * **Feedback Visual Inmediato:** parpadeo verde de éxito, notificaciones (toasts) flotantes y spinner de carga.
@@ -41,6 +42,8 @@ El proyecto se compone de páginas HTML autocontenidas (cada una trae su propio 
 | `index.html` | Frontend principal | Toda la aplicación: Login, Ventas (POS), Inventario, Registro de Producto, Categorías, Compras, Reportes, Papelera, Importador, Soporte y Ajustes. HTML, CSS y JS van en el mismo archivo. |
 | `registro-masivo.html` | Frontend auxiliar | Página independiente para dar de alta muchos productos en fila usando la cámara. Se abre desde **Importador → Registro de Productos para Base de Datos**. Comparte la misma `SCRIPT_URL` que `index.html`. |
 | `instructivo.md` | Documentación | Este archivo. Debe vivir en la **misma carpeta** que `index.html` para que el botón **Soporte → Instructivo** pueda leerlo y mostrarlo dentro de la app. |
+| `app.py` / `app.exe` | Versión de escritorio | Abre `index.html` en una ventana nativa (sin navegador), usando la misma `SCRIPT_URL`. También expone el guardado/lectura automática de `inventario.json` en su propia carpeta. |
+| `inventario.json` | Copia local (respaldo) | Se genera con el botón **Inventario → Actualizar Base Local**. Permite ver/buscar el catálogo y seguir vendiendo sin internet. No es obligatorio: si no existe, el sistema simplemente no podrá mostrar datos mientras esté sin conexión. |
 | Código de `Apps Script` (`.gs`) | Backend | Vive dentro de tu Google Sheet (Extensiones → Apps Script). Recibe las peticiones de ambas páginas HTML y lee/escribe la base de datos. |
 
 > Ambos archivos HTML cargan librerías externas por CDN (Font Awesome, `html5-qrcode` para el escáner, `xlsx` y `jsPDF` para exportar reportes, y `marked`/`DOMPurify` para renderizar este instructivo), así que necesitas conexión a internet la primera vez que se cargan.
@@ -52,7 +55,7 @@ El proyecto se compone de páginas HTML autocontenidas (cada una trae su propio 
 | Módulo | Funcionalidad |
 | :--- | :--- |
 | 🛒 **Ventas (POS)** | Búsqueda por nombre o escáner de cámara. Auto-suma al detectar coincidencia exacta. Calculadora de pago y cambio/vuelto. |
-| 📦 **Inventario** | Visualización del stock, precios de compra/venta y códigos. Buscador en tiempo real, también con escáner. |
+| 📦 **Inventario** | Visualización del stock, precios de compra/venta y códigos. Buscador en tiempo real, también con escáner. Botón **Actualizar Base Local** para generar `inventario.json` y poder consultarlo sin internet. |
 | ➕ **Reg. Producto** | Formulario para dar de alta un artículo nuevo. Permite usar la cámara para llenar el código de barras. |
 | 🏷️ **Categorías** | Creación y listado rápido de categorías para organizar el inventario. |
 | 🚚 **Compras** | Registro de entrada de mercadería; suma automáticamente la cantidad comprada al stock actual. |
@@ -61,6 +64,33 @@ El proyecto se compone de páginas HTML autocontenidas (cada una trae su propio 
 | 📥 **Importador** | Carga catálogos masivos desde `.csv` o `.json`, y enlaza a la herramienta de **Registro Masivo** para armar ese CSV escaneando producto por producto. |
 | 🆘 **Soporte** | Envío de tickets de soporte, historial de reportes enviados, y el botón **Instructivo** que abre este documento dentro de la app. |
 | 🛠️ **Ajustes** | Modo Oscuro/Claro, Modo Mantenimiento, y conexión/inicialización de la Base de Datos en Google Sheets. |
+
+---
+
+## 🔌 Modo Sin Conexión (Ventas + Inventario)
+
+### ¿Qué pasa si se va el internet?
+El sistema detecta la pérdida de conexión real (no solo el wifi de la PC, sino si realmente llega a internet) y avisa con una franja roja. A partir de ahí:
+
+* **Inventario:** en vez de quedar en blanco, se muestra la última copia local guardada (`inventario.json`), con un aviso indicando de qué fecha es esa copia. Los precios/existencias podrían no estar 100% al día.
+* **Ventas:** el buscador normal se reemplaza por un formulario para anotar el producto a mano (nombre, cantidad y precio aproximado). Si hay una copia local del inventario cargada, aparecen sugerencias con el precio y stock real mientras escribís, igual que el buscador normal — así casi nunca hace falta escribir el precio a ojo.
+* Cada venta hecha sin conexión queda guardada **en ese dispositivo** (no se pierde), lista para verificar cuando vuelva internet.
+
+### Cuando vuelve la conexión
+Aparece un panel con las ventas pendientes de esa sesión sin internet. Al abrir cada una:
+
+* Si el producto anotado ya se había emparejado con uno real (porque se eligió de las sugerencias), se empareja solo.
+* Si no, se busca a mano contra el inventario real, se confirma el precio correcto y el pago/cambio, y ahí sí se registra la venta de verdad en Google Sheets (descontando el stock).
+
+### Generar/actualizar la copia local (`inventario.json`)
+1. Con internet, ve a **Inventario** y presiona **Actualizar Base Local**.
+2. Confirma el mensaje que aparece.
+3. El sistema descarga el inventario completo y actualizado:
+   * **Usando el `.exe` de escritorio:** se guarda automáticamente en la misma carpeta del programa, reemplazando la copia anterior si existía.
+   * **Usando el sistema desde un navegador:** el archivo `inventario.json` se descarga (normalmente a la carpeta de Descargas). Hay que moverlo a mano a la misma carpeta donde está `index.html`, reemplazando el archivo anterior, para que quede disponible la próxima vez que falte internet.
+4. Si nunca se generó una copia local y se pierde la conexión, el sistema avisa que no hay datos locales disponibles y que hace falta conectarse a internet al menos una vez para generarla.
+
+> 💡 Conviene actualizar la base local de vez en cuando (por ejemplo, al abrir el negocio cada día), sobre todo si los precios o el stock cambian seguido.
 
 ---
 
