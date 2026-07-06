@@ -398,6 +398,56 @@
     .switch-capsula input:focus-visible + .capsula-riel { outline: 2px solid var(--primary-color); outline-offset: 2px; }
     .ajuste-fila-switch { display: flex; align-items: center; gap: 14px; justify-content: space-between; flex-wrap: wrap; }
     .ajuste-switch-estado { font-weight: 700; font-size: 0.82rem; }
+
+    /* ═══════════ MODO VENTA SIN CONEXIÓN (offline) ═══════════
+       Cuando el navegador detecta que no hay internet (se fue la luz,
+       se cayó el router, etc.), el título "Punto de Venta" pasa de su
+       color normal (negro/blanco según el tema) a rojo parpadeante, y
+       aparece un punto rojo parpadeante junto a "Ventas (POS)" en el
+       menú lateral. La venta sigue funcionando: se guarda en una cola
+       local (en este mismo dispositivo/navegador) y se sincroniza con
+       la base de datos real en cuanto vuelve la conexión. */
+    @keyframes posParpadeo { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+    .pos-titulo-conexion.sin-conexion { color: var(--danger-color) !important; animation: posParpadeo 1.1s infinite; }
+    .pos-nav-dot-conexion {
+      display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+      background: var(--danger-color); margin-left: 8px; vertical-align: middle;
+      animation: posParpadeo 1.1s infinite;
+    }
+    .pos-nav-badge-pendientes {
+      background: var(--danger-color); color: #fff; font-size: 0.68rem; font-weight: 700;
+      border-radius: 999px; padding: 1px 7px; margin-left: auto;
+    }
+    .sidebar-nav a[data-section="ventas"] { display: flex; align-items: center; }
+    .pos-banner-offline {
+      background: rgba(220,53,69,0.09); border: 1px solid rgba(220,53,69,0.35); border-radius: var(--radius);
+      padding: 0.75rem 1rem; margin-bottom: 1.25rem; display: flex; align-items: center; gap: 10px;
+      color: var(--danger-color); font-weight: 600; font-size: 0.87rem;
+    }
+    .pos-banner-offline i.fa-triangle-exclamation { animation: posParpadeo 1.1s infinite; }
+    .pos-banner-reconectado {
+      background: rgba(40,167,69,0.09); border: 1px solid rgba(40,167,69,0.35); border-radius: var(--radius);
+      padding: 0.75rem 1rem; margin-bottom: 1.25rem; display: flex; align-items: center; gap: 10px;
+      color: var(--success-color); font-weight: 600; font-size: 0.87rem; flex-wrap: wrap;
+    }
+    .pos-offline-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
+    .pos-offline-card {
+      background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg);
+      padding: 1rem; cursor: pointer; transition: box-shadow .2s, border-color .2s;
+    }
+    .pos-offline-card:hover { border-color: var(--primary-color); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .pos-offline-card h4 { font-size: 0.92rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+    .pos-offline-card .pos-offline-card-total { font-size: 1.15rem; font-weight: 800; color: var(--primary-color); margin-top: 4px; }
+    .pos-offline-card .pos-offline-card-meta { font-size: 0.75rem; color: var(--text-muted); }
+    .pos-reconciliar-fila {
+      border: 1px solid var(--border-color); border-radius: var(--radius); padding: 0.75rem; margin-bottom: 0.6rem;
+      display: grid; grid-template-columns: 1fr 90px 110px; gap: 10px; align-items: start; position: relative;
+    }
+    .pos-reconciliar-fila.emparejada { border-color: var(--success-color); background: var(--success-light); }
+    .pos-reconciliar-fila .pos-reconciliar-sugerencias {
+      position: absolute; left: 0; top: 100%; width: 100%; z-index: 10; background: var(--bg-card);
+      border: 1px solid var(--border-color); border-radius: var(--radius); max-height: 170px; overflow-y: auto;
+    }
   </style>
 </head>
 <body id="appBody">
@@ -511,6 +561,37 @@
       El código <b id="codigoDuplicadoCarritoTexto" style="font-family:monospace;"></b> está registrado en más de un producto activo. Elige cuál agregar al carrito:
     </p>
     <div id="codigoDuplicadoCarritoLista" style="display:grid; gap:8px;"></div>
+  </div>
+</div>
+
+<div id="modalReconciliarVentaOffline" class="modal hidden">
+  <div class="modal-content" style="max-width:640px;">
+    <div class="modal-header">
+      <h3 style="margin:0;"><i class="fas fa-satellite-dish" style="color:var(--primary-color);"></i> Verificar venta sin conexión</h3>
+      <button class="modal-close" onclick="cerrarModal('modalReconciliarVentaOffline')"><i class="fas fa-times"></i></button>
+    </div>
+    <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:0.75rem;">
+      Esta venta se anotó a mano mientras no había internet, el <b id="rec_fecha"></b>. Empareja cada producto anotado con el producto real de la base de datos para confirmar precio y descontar inventario correctamente.
+    </p>
+    <div id="rec_filas"></div>
+    <div class="pago-caja" style="margin-top:1rem;">
+      <div style="display:flex; justify-content:space-between; font-size:0.95rem; font-weight:600; margin-bottom:6px; color:var(--text-muted);">
+        <span>Total real (según base de datos):</span><span id="rec_total_real">$0.00</span>
+      </div>
+      <div class="form-group" style="margin-bottom:8px;">
+        <label style="color:var(--primary-color);">Cliente pagó con ($) — anotado sin conexión:</label>
+        <input type="number" id="rec_pago_con" class="input-calculo" step="0.01" oninput="recalcularReconciliacion()">
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label style="color:var(--danger-color);">Cambio real a entregar:</label>
+        <input type="text" id="rec_cambio" class="input-calculo" style="color:var(--danger-color) !important; background:rgba(220,53,69,0.06) !important;" readonly value="$0.00">
+      </div>
+      <p id="rec_aviso_diferencia" class="hidden" style="font-size:0.78rem; color:var(--danger-color); font-weight:600; margin-top:8px;"></p>
+    </div>
+    <div style="display:flex; gap:10px; margin-top:1.25rem;">
+      <button class="btn danger-btn" style="flex:1;" onclick="descartarVentaOffline()"><i class="fas fa-trash-alt"></i> Descartar</button>
+      <button id="btnConfirmarSincronizacion" class="btn primary-btn" style="flex:2;" onclick="confirmarSincronizacionVentaOffline()"><i class="fas fa-cloud-upload-alt"></i> Confirmar y Registrar Venta</button>
+    </div>
   </div>
 </div>
 
@@ -770,7 +851,7 @@
   <aside class="sidebar" id="sidebar">
     <div class="logo">🖥️PUNTO DE VENTA</div>
     <nav class="sidebar-nav">
-      <a href="#" data-section="ventas" class="active"><i class="fas fa-shopping-cart"></i> Ventas (POS)</a>
+      <a href="#" data-section="ventas" class="active"><i class="fas fa-shopping-cart"></i> Ventas (POS) <span id="navDotConexion" class="pos-nav-dot-conexion hidden" title="Sin conexión a internet"></span><span id="navBadgePendientes" class="pos-nav-badge-pendientes hidden" title="Ventas sin conexión pendientes de sincronizar"></span></a>
       <a href="#" data-section="inventario"><i class="fas fa-boxes"></i> Inventario</a>
       <a href="#" data-section="productos"><i class="fas fa-plus-circle"></i> Reg. Producto</a>
       <a href="#" data-section="categorias"><i class="fas fa-tags"></i> Categorías</a>
@@ -799,10 +880,30 @@
   <main class="main-content">
     
     <section id="ventas" class="content-section active">
-      <h2 style="margin-bottom:1.5rem;"><i class="fas fa-cash-register"></i> Punto de Venta</h2>
+      <h2 id="tituloPuntoVenta" class="pos-titulo-conexion" style="margin-bottom:1.5rem;"><i class="fas fa-cash-register"></i> Punto de Venta</h2>
+
+      <!-- Banner que aparece SOLO cuando no hay internet: avisa que la venta
+           se puede seguir haciendo, pero quedará en cola en este dispositivo
+           hasta que vuelva la conexión. -->
+      <div id="bannerSinConexion" class="pos-banner-offline hidden">
+        <i class="fas fa-triangle-exclamation"></i>
+        <span>Sin conexión a internet. Puedes seguir vendiendo: la venta se guardará en este dispositivo y se sincronizará con la base de datos real en cuanto vuelva la conexión.</span>
+      </div>
+
+      <!-- Aparece cuando vuelve la conexión y hay ventas sin conexión
+           pendientes de sincronizar. Un clic en cada tarjeta abre la
+           verificación contra la base de datos real. -->
+      <div id="panelVentasOfflinePendientes" class="hidden">
+        <div class="pos-banner-reconectado">
+          <i class="fas fa-check-circle"></i>
+          <span>Conexión recuperada. Tienes <b id="conteoVentasOfflinePendientes">0</b> venta(s) sin conexión por verificar y sincronizar. Haz clic en una tarjeta para revisarla contra la base de datos real.</span>
+        </div>
+        <div id="tarjetasVentasOffline" class="pos-offline-cards"></div>
+      </div>
+
       <div class="carrito-container">
         <div>
-          <div class="form-group">
+          <div class="form-group" id="bloqueBuscadorProductoOnline">
             <label>Escanear o Buscar Producto:</label>
             <div style="display:flex; gap:8px;">
               <input type="text" id="v_query" placeholder="Escribe código o nombre..." autocomplete="off" style="flex:1;">
@@ -810,6 +911,22 @@
             </div>
             <div id="v_sugerencias" style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius); max-height:180px; overflow-y:auto; margin-top:4px;" class="hidden"></div>
             <p style="font-size:0.75rem; color:var(--text-muted); margin:6px 0 0;"><i class="fas fa-barcode"></i> Tu lector USB funciona en cualquier momento, sin necesidad de hacer clic aquí.</p>
+          </div>
+
+          <!-- Se muestra en vez del buscador de arriba cuando NO hay
+               internet: sin conexión no se puede consultar la base de
+               datos real, así que el producto se anota a mano (nombre y
+               cantidad) y se verifica contra el inventario real más
+               adelante, cuando vuelva la conexión. -->
+          <div class="form-group hidden" id="bloqueAgregarProductoOffline">
+            <label><i class="fas fa-pen"></i> Anotar producto a mano (sin conexión):</label>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <input type="text" id="vo_nombre" placeholder="Nombre del producto..." autocomplete="off" style="flex:2; min-width:140px;">
+              <input type="number" id="vo_cantidad" placeholder="Cant." min="1" value="1" style="flex:0 0 70px;">
+              <input type="number" id="vo_precio" placeholder="Precio aprox. (opcional)" min="0" step="0.01" style="flex:1; min-width:130px;">
+              <button type="button" class="btn primary-btn" onclick="agregarItemManualCarrito()" style="flex:0 0 auto;"><i class="fas fa-plus"></i> Agregar</button>
+            </div>
+            <p style="font-size:0.75rem; color:var(--text-muted); margin:6px 0 0;"><i class="fas fa-circle-info"></i> El precio es opcional: si no lo sabes exacto, déjalo vacío y se corregirá al verificar la venta cuando vuelva la conexión.</p>
           </div>
           <div class="form-group" style="margin-top:1rem;">
             <label>Nombre del Cliente (Opcional):</label>
@@ -885,7 +1002,7 @@
             </div>
           </div>
           <button id="btnFinalizarVenta" class="btn primary-btn" style="width:100%; justify-content:center; height:48px; font-size:1.05rem;" onclick="finalizarVenta()">
-            <i class="fas fa-check-circle"></i> Registrar Cobro Exitoso
+            <i id="iconoFinalizarVenta" class="fas fa-check-circle"></i> <span id="textoFinalizarVenta">Registrar Cobro Exitoso</span>
           </button>
         </div>
       </div>
@@ -1186,6 +1303,21 @@
           </div>
         </div>
 
+        <!-- Modo Venta Sin Conexión (offline) -->
+        <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg); padding:1.25rem;">
+          <h4 style="margin-bottom:0.5rem; color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em;">Modo Venta Sin Conexión</h4>
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">
+            Si se va la luz o el internet, el título "Punto de Venta" parpadea en rojo y el sistema permite seguir vendiendo: el producto se anota a mano y la venta se guarda en este dispositivo hasta que vuelva la conexión, momento en el que se verifica contra la base de datos real (buscador, precio y stock reales) antes de registrarla. Desactiva esto si no quieres que el sistema muestre ese aviso ni permita ventas sin conexión.
+          </p>
+          <div class="ajuste-fila-switch">
+            <label class="switch-capsula">
+              <input type="checkbox" id="chkModoOffline" checked onchange="cambiarModoOfflineActivo(this.checked)">
+              <span class="capsula-riel"></span>
+            </label>
+            <span class="ajuste-switch-estado" id="lblEstadoModoOffline" style="color:var(--success-color);">Activado</span>
+          </div>
+        </div>
+
         <!-- Códigos Duplicados -->
         <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg); padding:1.25rem;">
           <h4 style="margin-bottom:0.5rem; color:var(--text-muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.05em;">Códigos Duplicados</h4>
@@ -1296,6 +1428,333 @@
   const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwbYNUf0--D2RVqFyaBZHFxQuClX6RBybuhK6kJU9Q02NZyICUIXEnUWIR1x25xMnfMrA/exec";
 
   let inventarioGlobal = [], carrito = [];
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ══ MODO VENTA SIN CONEXIÓN (offline) ════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════
+  // Idea general: si se va la luz / el internet mientras el sistema ya
+  // está abierto en el navegador, igual se puede seguir vendiendo. Como
+  // sin internet no se puede consultar la base de datos real, el
+  // producto se anota a mano (nombre, cantidad y, si se sabe, precio
+  // aproximado). Esa venta se guarda en una cola local (localStorage,
+  // vive en este mismo dispositivo/navegador) en vez de enviarse al
+  // servidor. En cuanto vuelve la conexión, "Ventas (POS)" muestra un
+  // punto rojo/contador de pendientes, y dentro de la sección aparecen
+  // tarjetas —una por cada venta en cola— para verificarlas: se busca
+  // cada producto anotado contra el inventario real (con el mismo
+  // buscador de siempre), se confirma el precio real y se revisa cuánto
+  // pagó el cliente y cuánto cambio le correspondía. Solo hasta que se
+  // confirma esa verificación se registra la venta de verdad en el
+  // servidor y se descuenta el inventario.
+  const POS_OFFLINE_KEY = 'pos_cola_ventas_offline';
+  const POS_OFFLINE_ACTIVO_KEY = 'pos_modo_offline_activo';
+  let sinConexion = false;
+  // Interruptor en Ajustes: si está desactivado, el sistema se comporta
+  // exactamente como antes (sin aviso rojo parpadeante ni ventas en
+  // cola). Por defecto queda activado. Se guarda por dispositivo, igual
+  // que la cola de ventas offline.
+  let modoOfflineActivo = localStorage.getItem(POS_OFFLINE_ACTIVO_KEY) !== '0';
+  let ventaOfflineEnRevision = null;   // objeto de la venta que se está reconciliando ahora
+  let itemsReconciliacion = [];         // copia editable de los items de esa venta, con el producto real ya emparejado (o no)
+
+  function cambiarModoOfflineActivo(activo) {
+    modoOfflineActivo = activo;
+    localStorage.setItem(POS_OFFLINE_ACTIVO_KEY, activo ? '1' : '0');
+    actualizarEtiquetaModoOffline();
+    if (!activo && sinConexion) marcarConConexion(); // si estaba mostrando el aviso rojo, lo regresa a la normalidad
+    if (activo) verificarConexionReal();             // revisa el estado real de la conexión al reactivarlo
+    showToast(activo ? 'Modo venta sin conexión activado.' : 'Modo venta sin conexión desactivado.', 'success');
+  }
+
+  function actualizarEtiquetaModoOffline() {
+    const chk = document.getElementById('chkModoOffline');
+    const lbl = document.getElementById('lblEstadoModoOffline');
+    if (chk) chk.checked = modoOfflineActivo;
+    if (lbl) {
+      lbl.textContent = modoOfflineActivo ? 'Activado' : 'Desactivado';
+      lbl.style.color = modoOfflineActivo ? 'var(--success-color)' : 'var(--danger-color)';
+    }
+  }
+
+  function obtenerColaVentasOffline() {
+    try { return JSON.parse(localStorage.getItem(POS_OFFLINE_KEY) || '[]'); }
+    catch(e) { return []; }
+  }
+  function guardarColaVentasOffline(cola) {
+    localStorage.setItem(POS_OFFLINE_KEY, JSON.stringify(cola));
+    actualizarBadgeVentasOfflinePendientes();
+  }
+  function actualizarBadgeVentasOfflinePendientes() {
+    const cola = obtenerColaVentasOffline();
+    const badge = document.getElementById('navBadgePendientes');
+    if (!badge) return;
+    if (cola.length > 0) { badge.textContent = cola.length; badge.classList.remove('hidden'); }
+    else { badge.classList.add('hidden'); }
+  }
+
+  // ── Detección de conexión ──
+  // navigator.onLine + los eventos 'online'/'offline' cubren el caso más
+  // común (se apagó el wifi/datos o se fue la luz del router). Además,
+  // cada vez que un fetch normal de la app falla por red (ver marcarSinConexionSiFallaRed),
+  // se marca sin conexión al instante sin esperar el aviso del navegador.
+  function marcarSinConexion() {
+    if (!modoOfflineActivo) return; // desactivado desde Ajustes: se comporta como el sistema original
+    if (sinConexion) return;
+    sinConexion = true;
+    document.getElementById('tituloPuntoVenta')?.classList.add('sin-conexion');
+    document.getElementById('navDotConexion')?.classList.remove('hidden');
+    document.getElementById('bannerSinConexion')?.classList.remove('hidden');
+    document.getElementById('bloqueBuscadorProductoOnline')?.classList.add('hidden');
+    document.getElementById('bloqueAgregarProductoOffline')?.classList.remove('hidden');
+    document.getElementById('panelVentasOfflinePendientes')?.classList.add('hidden');
+    const icono = document.getElementById('iconoFinalizarVenta');
+    const texto = document.getElementById('textoFinalizarVenta');
+    if (icono) icono.className = 'fas fa-cloud';
+    if (texto) texto.textContent = 'Guardar venta en cola (sin conexión)';
+    showToast('Se perdió la conexión a internet. Las ventas se guardarán en cola en este dispositivo.', 'warning');
+  }
+
+  function marcarConConexion() {
+    const estabaSinConexion = sinConexion;
+    sinConexion = false;
+    document.getElementById('tituloPuntoVenta')?.classList.remove('sin-conexion');
+    document.getElementById('navDotConexion')?.classList.add('hidden');
+    document.getElementById('bannerSinConexion')?.classList.add('hidden');
+    document.getElementById('bloqueBuscadorProductoOnline')?.classList.remove('hidden');
+    document.getElementById('bloqueAgregarProductoOffline')?.classList.add('hidden');
+    const icono = document.getElementById('iconoFinalizarVenta');
+    const texto = document.getElementById('textoFinalizarVenta');
+    if (icono) icono.className = 'fas fa-check-circle';
+    if (texto) texto.textContent = 'Registrar Cobro Exitoso';
+    if (estabaSinConexion) {
+      showToast('Conexión recuperada.', 'success');
+      loadInventario().catch(()=>{});
+    }
+    renderPanelVentasOfflinePendientes();
+  }
+
+  // Sondeo real de internet (no solo de red local): un fetch pequeño y
+  // silencioso contra el propio servidor cada 20s. navigator.onLine solo
+  // sabe si hay una interfaz de red activa, pero NO si esa red tiene
+  // salida real a internet (por ejemplo, wifi conectado pero sin datos).
+  async function verificarConexionReal() {
+    if (!modoOfflineActivo) return;
+    if (!document.getElementById('mainApp') || document.getElementById('mainApp').classList.contains('hidden')) return;
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 6000);
+      await fetch(`${SCRIPT_URL}?action=getEstado&_=${Date.now()}`, { method:'GET', cache:'no-store', signal: ctrl.signal, mode:'no-cors' });
+      clearTimeout(t);
+      if (navigator.onLine) marcarConConexion();
+    } catch(e) {
+      marcarSinConexion();
+    }
+  }
+
+  function inicializarDeteccionConexion() {
+    actualizarEtiquetaModoOffline();
+    window.addEventListener('online', verificarConexionReal);
+    window.addEventListener('offline', marcarSinConexion);
+    if (!navigator.onLine) marcarSinConexion();
+    verificarConexionReal();
+    setInterval(verificarConexionReal, 20000);
+    actualizarBadgeVentasOfflinePendientes();
+  }
+
+  // ── Agregar producto anotado a mano al carrito (modo sin conexión) ──
+  function agregarItemManualCarrito() {
+    const nombreInput = document.getElementById('vo_nombre');
+    const nombre = nombreInput.value.trim();
+    const cantidad = parseInt(document.getElementById('vo_cantidad').value, 10) || 1;
+    const precioTxt = document.getElementById('vo_precio').value;
+    const precio = precioTxt !== '' ? parseFloat(precioTxt) : 0;
+    if (!nombre) { marcarCampoInvalido(nombreInput); showToast('Escribe el nombre del producto.', 'error'); nombreInput.focus(); return; }
+    limpiarCampoInvalido(nombreInput);
+    carrito.push({ producto_id: null, nombre: nombre, cantidad: cantidad, precio_unitario: precio, manual: true });
+    document.getElementById('vo_nombre').value = '';
+    document.getElementById('vo_cantidad').value = '1';
+    document.getElementById('vo_precio').value = '';
+    renderCarrito();
+    dispararAccionExitosa(`Anotado: ${nombre}`);
+    nombreInput.focus();
+  }
+
+  // ── Guardar la venta actual en la cola local (en vez de mandarla al servidor) ──
+  function guardarVentaOfflineEnCola() {
+    const totalCarrito = parseFloat(document.getElementById('c_total').dataset.val) || 0;
+    const pagoCon = parseFloat(document.getElementById('v_pago_con').value) || 0;
+    const cambioEstimado = pagoCon >= totalCarrito ? parseFloat((pagoCon - totalCarrito).toFixed(2)) : 0;
+    const venta = {
+      id: 'off_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+      fecha_local: new Date().toISOString(),
+      cliente_nombre: document.getElementById('v_cliente').value || '',
+      cliente_whatsapp: obtenerWhatsappCompleto(),
+      cliente_correo: document.getElementById('v_correo').value || '',
+      pago_con: pagoCon,
+      cambio_estimado: cambioEstimado,
+      total_estimado: totalCarrito,
+      items: carrito.map(it => ({ nombre_manual: it.nombre, cantidad: it.cantidad, precio_estimado: it.precio_unitario || 0 }))
+    };
+    const cola = obtenerColaVentasOffline();
+    cola.push(venta);
+    guardarColaVentasOffline(cola);
+
+    carrito = [];
+    renderCarrito();
+    document.getElementById('v_pago_con').value = '';
+    document.getElementById('v_cambio').value = '';
+    document.getElementById('v_cliente').value = '';
+    document.getElementById('v_whatsapp').value = '';
+    document.getElementById('v_correo').value = '';
+    dispararAccionExitosa('Venta guardada sin conexión. Se sincronizará cuando vuelva el internet.');
+  }
+
+  // ── Panel de tarjetas con las ventas offline pendientes de verificar ──
+  function renderPanelVentasOfflinePendientes() {
+    const panel = document.getElementById('panelVentasOfflinePendientes');
+    const cont = document.getElementById('tarjetasVentasOffline');
+    if (!panel || !cont) return;
+    const cola = obtenerColaVentasOffline();
+    if (sinConexion || cola.length === 0) { panel.classList.add('hidden'); return; }
+    panel.classList.remove('hidden');
+    document.getElementById('conteoVentasOfflinePendientes').textContent = cola.length;
+    cont.innerHTML = cola.map(v => {
+      const fecha = new Date(v.fecha_local).toLocaleString('es-SV', { dateStyle:'short', timeStyle:'short' });
+      const cantItems = v.items.reduce((s,i)=>s+i.cantidad,0);
+      return `<div class="pos-offline-card" onclick="abrirReconciliacionVentaOffline('${v.id}')">
+        <h4><i class="fas fa-receipt" style="color:var(--danger-color);"></i> ${fecha}</h4>
+        <div class="pos-offline-card-meta">${v.cliente_nombre ? v.cliente_nombre : 'Cliente sin nombre'} · ${cantItems} producto(s)</div>
+        <div class="pos-offline-card-total">$${(v.total_estimado||0).toFixed(2)} <span style="font-size:0.7rem; color:var(--text-muted); font-weight:400;">(estimado)</span></div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Abrir la verificación de una venta offline puntual ──
+  function abrirReconciliacionVentaOffline(id) {
+    const cola = obtenerColaVentasOffline();
+    const venta = cola.find(v => v.id === id);
+    if (!venta) return;
+    ventaOfflineEnRevision = venta;
+    itemsReconciliacion = venta.items.map(it => ({
+      nombre_manual: it.nombre_manual, cantidad: it.cantidad, precio_estimado: it.precio_estimado,
+      producto_id: null, nombre_real: null, precio_real: null, stock_real: null
+    }));
+    document.getElementById('rec_fecha').textContent = new Date(venta.fecha_local).toLocaleString('es-SV', { dateStyle:'medium', timeStyle:'short' });
+    document.getElementById('rec_pago_con').value = venta.pago_con || 0;
+    renderFilasReconciliacion();
+    recalcularReconciliacion();
+    document.getElementById('modalReconciliarVentaOffline').classList.remove('hidden');
+  }
+
+  function renderFilasReconciliacion() {
+    const cont = document.getElementById('rec_filas');
+    cont.innerHTML = itemsReconciliacion.map((it, idx) => {
+      const emparejada = !!it.producto_id;
+      return `<div class="pos-reconciliar-fila ${emparejada ? 'emparejada' : ''}">
+        <div>
+          <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:2px;">Anotado sin conexión: <b>${it.nombre_manual}</b> ${it.precio_estimado ? `· aprox. $${parseFloat(it.precio_estimado).toFixed(2)} c/u` : ''}</div>
+          ${emparejada
+            ? `<div style="font-weight:700;"><i class="fas fa-check" style="color:var(--success-color);"></i> ${it.nombre_real} <span style="font-weight:400; color:var(--text-muted);">· stock disp: ${it.stock_real}</span></div>`
+            : `<input type="text" placeholder="Buscar producto real..." autocomplete="off" oninput="buscarSugerenciaReconciliacion(${idx}, this.value)" style="width:100%;">`
+          }
+          <div id="rec_sug_${idx}" class="pos-reconciliar-sugerencias hidden"></div>
+        </div>
+        <input type="number" min="1" value="${it.cantidad}" onchange="cambiarCantidadReconciliacion(${idx}, this.value)" title="Cantidad">
+        <div style="text-align:right; font-weight:700;">${emparejada ? '$' + (it.precio_real * it.cantidad).toFixed(2) : '—'}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function buscarSugerenciaReconciliacion(idx, texto) {
+    const cont = document.getElementById(`rec_sug_${idx}`);
+    const val = texto.trim().toLowerCase();
+    if (!val) { cont.classList.add('hidden'); return; }
+    const matches = inventarioGlobal.filter(p => p.nombre.toLowerCase().includes(val)).slice(0, 6);
+    if (!matches.length) { cont.classList.add('hidden'); return; }
+    cont.innerHTML = matches.map(p => `<div style="padding:8px 10px; border-bottom:1px solid var(--border-color); cursor:pointer; font-size:0.85rem;" onclick='emparejarProductoReconciliacion(${idx}, ${JSON.stringify(p)})'>${p.nombre} <span style="color:var(--text-muted);">· $${parseFloat(p.precio_venta).toFixed(2)} · stock ${p.stock}</span></div>`).join('');
+    cont.classList.remove('hidden');
+  }
+
+  function emparejarProductoReconciliacion(idx, producto) {
+    itemsReconciliacion[idx].producto_id = producto.id;
+    itemsReconciliacion[idx].nombre_real = producto.nombre;
+    itemsReconciliacion[idx].precio_real = parseFloat(producto.precio_venta);
+    itemsReconciliacion[idx].stock_real = producto.stock;
+    renderFilasReconciliacion();
+    recalcularReconciliacion();
+  }
+
+  function cambiarCantidadReconciliacion(idx, valor) {
+    const n = parseInt(valor, 10);
+    itemsReconciliacion[idx].cantidad = (!n || n <= 0) ? 1 : n;
+    renderFilasReconciliacion();
+    recalcularReconciliacion();
+  }
+
+  function recalcularReconciliacion() {
+    const totalReal = itemsReconciliacion.reduce((s, it) => s + (it.producto_id ? it.precio_real * it.cantidad : 0), 0);
+    document.getElementById('rec_total_real').textContent = `$${totalReal.toFixed(2)}`;
+    const pagoCon = parseFloat(document.getElementById('rec_pago_con').value) || 0;
+    const cambioReal = pagoCon >= totalReal ? (pagoCon - totalReal) : 0;
+    document.getElementById('rec_cambio').value = `$${cambioReal.toFixed(2)}`;
+
+    const aviso = document.getElementById('rec_aviso_diferencia');
+    const cambioEstimado = ventaOfflineEnRevision ? (ventaOfflineEnRevision.cambio_estimado || 0) : 0;
+    if (Math.abs(cambioReal - cambioEstimado) > 0.01 || pagoCon < totalReal) {
+      aviso.classList.remove('hidden');
+      aviso.textContent = pagoCon < totalReal
+        ? `⚠ El pago anotado ($${pagoCon.toFixed(2)}) no cubre el total real ($${totalReal.toFixed(2)}). Verifica con el cliente antes de confirmar.`
+        : `⚠ El cambio real ($${cambioReal.toFixed(2)}) es distinto al que se calculó sin conexión ($${cambioEstimado.toFixed(2)}).`;
+    } else {
+      aviso.classList.add('hidden');
+    }
+  }
+
+  function descartarVentaOffline() {
+    if (!ventaOfflineEnRevision) return;
+    if (!confirm('¿Descartar esta venta sin conexión? Esta acción no se puede deshacer y NO se registrará en el sistema.')) return;
+    const cola = obtenerColaVentasOffline().filter(v => v.id !== ventaOfflineEnRevision.id);
+    guardarColaVentasOffline(cola);
+    cerrarModal('modalReconciliarVentaOffline');
+    ventaOfflineEnRevision = null;
+    showToast('Venta sin conexión descartada.', 'warning');
+    renderPanelVentasOfflinePendientes();
+  }
+
+  async function confirmarSincronizacionVentaOffline() {
+    if (!ventaOfflineEnRevision) return;
+    if (itemsReconciliacion.some(it => !it.producto_id)) {
+      showToast('Empareja todos los productos anotados con un producto real antes de confirmar.', 'error');
+      return;
+    }
+    const btn = document.getElementById('btnConfirmarSincronizacion');
+    btn.disabled = true;
+    showSpinner('Sincronizando venta...');
+    const payload = {
+      action: 'registrarVenta',
+      usuario: 'admin',
+      cliente_nombre: ventaOfflineEnRevision.cliente_nombre || '',
+      cliente_whatsapp: ventaOfflineEnRevision.cliente_whatsapp || '',
+      cliente_correo: ventaOfflineEnRevision.cliente_correo || '',
+      pago_con: parseFloat(document.getElementById('rec_pago_con').value) || 0,
+      cambio: parseFloat((document.getElementById('rec_cambio').value || '$0').replace('$','')) || 0,
+      items: itemsReconciliacion.map(it => ({ producto_id: it.producto_id, cantidad: it.cantidad, precio_unitario: it.precio_real }))
+    };
+    try {
+      const res = await fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify(payload) }).then(r => r.json());
+      if (res.status === 'success') {
+        const cola = obtenerColaVentasOffline().filter(v => v.id !== ventaOfflineEnRevision.id);
+        guardarColaVentasOffline(cola);
+        cerrarModal('modalReconciliarVentaOffline');
+        ventaOfflineEnRevision = null;
+        dispararAccionExitosa('Venta sincronizada y registrada con éxito.');
+        await loadInventario();
+        renderPanelVentasOfflinePendientes();
+      } else { showToast(res.message, 'error'); }
+    } catch(e) { showToast('Error en el servidor. Intenta de nuevo cuando haya conexión estable.', 'error'); }
+    hideSpinner();
+    btn.disabled = false;
+  }
 
   // ══ CÓDIGO DE BARRAS: IGNORAR CEROS A LA IZQUIERDA ═══════════════
   // Ver explicación completa junto al interruptor en Ajustes y en Code.gs
@@ -1554,6 +2013,7 @@
     setupNavigation();
     setupMobileMenu();
     inicializarVersionUI();
+    inicializarDeteccionConexion();
     document.getElementById('v_pago_con').addEventListener('input', calcularVueltoCambio);
     setupFormsSubmit();
     setupCarritoResize();
@@ -1758,6 +2218,7 @@
     link.classList.add('active');
     detenerCamaraEscaneo();
 
+    if (sectionId === 'ventas') renderPanelVentasOfflinePendientes();
     if (sectionId === 'inventario') loadInventario();
     if (sectionId === 'papelera') loadPapelera();
     if (sectionId === 'categorias') renderCategorias();
@@ -3065,11 +3526,14 @@
       total += item.cantidad * item.precio_unitario;
       const prodOriginal = inventarioGlobal.find(x => x.id === item.producto_id);
       const stockDisp = prodOriginal ? prodOriginal.stock : 0;
+      const infoLinea = item.manual
+        ? `<i class="fas fa-pen"></i> Anotado sin conexión · se verifica al reconectar ${item.precio_unitario ? '· $' + item.precio_unitario.toFixed(2) + ' aprox.' : '(sin precio)'}`
+        : `Stock disp: ${stockDisp} · $${item.precio_unitario.toFixed(2)} c/u`;
 
       return `<div class="carrito-item">
         <div class="carrito-item-info">
           <div class="carrito-item-nombre">${item.nombre}</div>
-          <div style="font-size:0.75rem; color:var(--text-muted);">Stock disp: ${stockDisp} · $${item.precio_unitario.toFixed(2)} c/u</div>
+          <div style="font-size:0.75rem; color:${item.manual ? 'var(--danger-color)' : 'var(--text-muted)'};">${infoLinea}</div>
         </div>
         <div class="carrito-qty" style="flex-shrink:0; margin:0 8px;">
           <button onclick="cambiarCantidadCarrito(${index},-1)" title="Quitar uno">−</button>
@@ -3135,6 +3599,12 @@
   async function finalizarVenta() {
     if (!carrito.length) return showToast('El carrito está vacío.', 'warning');
     if (!validarCamposObligatorios([document.getElementById('v_pago_con')])) return;
+
+    // Sin conexión no se puede registrar la venta en el servidor: se
+    // guarda en la cola local y se sincroniza más adelante (ver
+    // guardarVentaOfflineEnCola y abrirReconciliacionVentaOffline).
+    if (sinConexion) { guardarVentaOfflineEnCola(); return; }
+
     const btn = document.getElementById('btnFinalizarVenta');
     btn.disabled = true;
     showSpinner('Registrando venta...');
@@ -3184,7 +3654,16 @@
           if (!enviarPorWa && !enviarPorCo && (tieneWa || tieneCo)) abrirModalEnvioFactura(ventaRecien);
         }
       } else { showToast(res.message, 'error'); }
-    } catch(e) { showToast('Error en el servidor.', 'error'); }
+    } catch(e) {
+      // El fetch falló por red (no solo por un error del servidor): lo más
+      // probable es que se acaba de ir la conexión justo al cobrar. En vez
+      // de perder la venta, se marca sin conexión al instante y se guarda
+      // en la cola local, igual que si ya se hubiera detectado antes.
+      // Si el modo offline está desactivado desde Ajustes, se mantiene el
+      // comportamiento original (solo mostrar el error).
+      if (modoOfflineActivo) { marcarSinConexion(); guardarVentaOfflineEnCola(); }
+      else { showToast('Error en el servidor.', 'error'); }
+    }
     hideSpinner();
     btn.disabled = false;
   }
