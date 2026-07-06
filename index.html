@@ -228,6 +228,29 @@
     .carrito-qty button:hover { background: var(--primary-light); border-color: var(--primary-color); color: var(--primary-color); }
     .carrito-qty { gap: 10px; }
 
+    /* ── Cantidad editable con un clic (input numérico con look de texto) ── */
+    .carrito-qty-input {
+      width: 42px; text-align: center; font-weight: 700; font-size: 1rem;
+      border: 1px solid transparent; border-radius: 6px; background: transparent;
+      color: var(--text-main); padding: 4px 2px; font-family: inherit; cursor: text;
+      -moz-appearance: textfield;
+    }
+    .carrito-qty-input::-webkit-outer-spin-button, .carrito-qty-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .carrito-qty-input:hover { border-color: var(--border-color); }
+    .carrito-qty-input:focus { border-color: var(--primary-color); background: var(--bg-card); outline: none; }
+
+    /* ── Eliminar un producto individual del carrito ── */
+    .carrito-item-eliminar {
+      width: 30px; height: 30px; flex-shrink: 0; margin-left: 6px;
+      border: none; background: transparent; color: var(--text-muted);
+      border-radius: 6px; cursor: pointer; font-size: 0.95rem;
+      display: inline-flex; align-items: center; justify-content: center; transition: background 0.15s, color 0.15s;
+    }
+    .carrito-item-eliminar:hover { background: rgba(220,53,69,0.1); color: var(--danger-color); }
+
+    /* ── Vaciar carrito completo ── */
+    #btnVaciarCarrito { padding: 4px 10px; font-size: 0.75rem; height: auto; line-height: 1.4; }
+
     /* ── PAGINACIÓN INVENTARIO ── */
     .paginacion { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--border-color); font-size: 0.85rem; background: var(--bg-card); border-radius: 0 0 var(--radius-lg) var(--radius-lg); flex-wrap: wrap; gap: 8px; }
     .paginacion-btns { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -830,12 +853,17 @@
 
         <div class="carrito-panel" id="carritoPanel">
           <div class="carrito-resize-handle" id="carritoResizeHandle" title="Arrastra para cambiar el tamaño del carrito"></div>
-          <h3 style="margin-bottom:1rem; padding-bottom:0.5rem; border-bottom:1px solid var(--border-color);">
-            <span class="carrito-titulo-toggle" onclick="toggleCarritoAutoSize()" title="Clic para ajustar el tamaño automáticamente y ver el nombre completo de cada producto">
-              <i class="fas fa-list-ol"></i> Carrito
-              <i class="fas fa-expand-alt carrito-auto-icono"></i>
+          <h3 style="margin-bottom:1rem; padding-bottom:0.5rem; border-bottom:1px solid var(--border-color); display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+            <span>
+              <span class="carrito-titulo-toggle" onclick="toggleCarritoAutoSize()" title="Clic para ajustar el tamaño automáticamente y ver el nombre completo de cada producto">
+                <i class="fas fa-list-ol"></i> Carrito
+                <i class="fas fa-expand-alt carrito-auto-icono"></i>
+              </span>
+              <span id="carritoBadge" class="carrito-badge hidden">0</span>
             </span>
-            <span id="carritoBadge" class="carrito-badge hidden">0</span>
+            <button id="btnVaciarCarrito" class="btn danger-btn hidden" onclick="vaciarCarrito()" title="Eliminar todos los productos del carrito">
+              <i class="fas fa-trash-alt"></i> Vaciar
+            </button>
           </h3>
           <div id="carritoItems" style="min-height:160px; max-height:280px; overflow-y:auto; margin-bottom:1rem;">
             <p class="text-muted text-center" style="margin-top:3rem;">Carrito vacío</p>
@@ -3014,6 +3042,7 @@
   function renderCarrito() {
     const el = document.getElementById('carritoItems');
     const badge = document.getElementById('carritoBadge');
+    const btnVaciar = document.getElementById('btnVaciarCarrito');
 
     if (!carrito.length) {
       el.innerHTML = '<p class="text-muted text-center" style="margin-top:3rem;">Carrito vacío</p>';
@@ -3021,6 +3050,7 @@
       document.getElementById('c_total').textContent = '$0.00';
       document.getElementById('c_total').dataset.val = '0';
       badge.classList.add('hidden');
+      btnVaciar.classList.add('hidden');
       calcularVueltoCambio();
       return;
     }
@@ -3028,6 +3058,7 @@
     const totalItems = carrito.reduce((s, i) => s + i.cantidad, 0);
     badge.textContent = totalItems;
     badge.classList.remove('hidden');
+    btnVaciar.classList.remove('hidden');
     
     let total = 0;
     el.innerHTML = carrito.map((item, index) => {
@@ -3042,10 +3073,15 @@
         </div>
         <div class="carrito-qty" style="flex-shrink:0; margin:0 8px;">
           <button onclick="cambiarCantidadCarrito(${index},-1)" title="Quitar uno">−</button>
-          <span style="min-width:28px; text-align:center; font-weight:700; display:inline-block;">${item.cantidad}</span>
+          <input type="number" class="carrito-qty-input" value="${item.cantidad}" min="1" title="Clic para escribir la cantidad exacta"
+            onclick="this.select()" onchange="editarCantidadCarrito(${index}, this.value)"
+            onkeydown="if(event.key==='Enter'){ this.blur(); }">
           <button onclick="cambiarCantidadCarrito(${index},1)" title="Agregar uno">+</button>
         </div>
         <div style="width:72px; text-align:right; font-weight:700; flex-shrink:0;">$${(item.cantidad * item.precio_unitario).toFixed(2)}</div>
+        <button class="carrito-item-eliminar" onclick="eliminarItemCarrito(${index})" title="Eliminar este producto del carrito">
+          <i class="fas fa-trash-alt"></i>
+        </button>
       </div>`;
     }).join('');
     
@@ -3058,6 +3094,34 @@
   function cambiarCantidadCarrito(index, delta) {
     carrito[index].cantidad += delta;
     if (carrito[index].cantidad <= 0) carrito.splice(index, 1);
+    renderCarrito();
+  }
+
+  // Se dispara al escribir directamente la cantidad en el campo numérico
+  // del carrito (clic sobre el número) y confirmar con Enter o al salir del
+  // campo. Si se deja vacío, en 0 o en un valor inválido, el producto se
+  // quita del carrito (mismo criterio que restar con el botón "−").
+  function editarCantidadCarrito(index, valor) {
+    const nueva = parseInt(valor, 10);
+    if (!carrito[index]) return;
+    if (!nueva || nueva <= 0) {
+      carrito.splice(index, 1);
+    } else {
+      carrito[index].cantidad = nueva;
+    }
+    renderCarrito();
+  }
+
+  function eliminarItemCarrito(index) {
+    if (!carrito[index]) return;
+    carrito.splice(index, 1);
+    renderCarrito();
+  }
+
+  function vaciarCarrito() {
+    if (!carrito.length) return;
+    if (!confirm('¿Eliminar todos los productos del carrito?')) return;
+    carrito = [];
     renderCarrito();
   }
 
