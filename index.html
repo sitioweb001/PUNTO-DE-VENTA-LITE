@@ -15,6 +15,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
   
@@ -833,6 +834,48 @@
   </div>
 </div>
 
+<div id="modalEnviarResponsable" class="modal hidden">
+  <div class="modal-content" style="max-width:420px;">
+    <div class="modal-header">
+      <h3 style="margin:0;"><i class="fas fa-paper-plane"></i> Enviar Reporte</h3>
+      <button class="modal-close" onclick="cerrarModal('modalEnviarResponsable')"><i class="fas fa-times"></i></button>
+    </div>
+    <div style="padding:0.5rem 0 1rem;">
+      <p style="font-size:0.85rem; color:var(--text-muted); margin:0 0 1rem;">
+        Destinatario: <b id="enviarResp_email" style="color:var(--text-main);"></b>
+      </p>
+      <div id="envioResp_paso1" style="display:grid; gap:10px;">
+        <button class="btn secondary-btn" style="width:100%; flex-direction:column; align-items:flex-start; gap:2px; padding:10px 14px;" onclick="elegirModoEnvio('prueba')">
+          <span><i class="fas fa-flask"></i> Enviar versión de prueba</span>
+          <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">Datos de ejemplo (ficticios), solo para verificar que el correo llega bien.</span>
+        </button>
+        <button class="btn secondary-btn" style="width:100%; flex-direction:column; align-items:flex-start; gap:2px; padding:10px 14px;" onclick="elegirModoEnvio('real')">
+          <span><i class="fas fa-check-double"></i> Enviar versión real</span>
+          <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">Los reportes a los que está suscrito, con los datos reales actuales.</span>
+        </button>
+        <button class="btn secondary-btn" style="width:100%; flex-direction:column; align-items:flex-start; gap:2px; padding:10px 14px;" onclick="elegirModoEnvio('todo')">
+          <span><i class="fas fa-layer-group"></i> Enviar todo</span>
+          <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">Los 6 tipos de reporte con datos reales, sin importar a cuáles esté suscrito.</span>
+        </button>
+        <button class="btn" style="width:100%; background:transparent; border:1px solid var(--border-color); color:var(--text-muted);" onclick="cerrarModal('modalEnviarResponsable')">
+          <i class="fas fa-times"></i> Cancelar
+        </button>
+      </div>
+      <div id="envioResp_paso2" class="hidden">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+          <button type="button" class="btn-icon" style="background:var(--bg-main); border:1px solid var(--border-color);" title="Atrás" onclick="volverPasoModoEnvio()"><i class="fas fa-arrow-left"></i></button>
+          <b id="envioResp_paso2Titulo" style="font-size:0.9rem;"></b>
+        </div>
+        <label style="display:flex; align-items:center; gap:8px; font-size:0.85rem; font-weight:600; cursor:pointer; padding:6px 4px; border-bottom:1px solid var(--border-color); margin-bottom:8px;">
+          <input type="checkbox" id="envioResp_todosCheck" style="width:auto;" checked onchange="toggleTodosEnvioResp(this.checked)"> Seleccionar todos
+        </label>
+        <div id="envioResp_lista" style="display:grid; gap:8px; max-height:260px; overflow-y:auto; margin-bottom:14px; padding:0 4px;"></div>
+        <button class="btn primary-btn" style="width:100%;" onclick="enviarSeleccionResponsable()"><i class="fas fa-paper-plane"></i> Enviar seleccionados</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="modalVersiones" class="modal hidden">
   <div class="modal-content" style="max-width: 480px;">
     <div class="modal-header">
@@ -1104,8 +1147,28 @@
         <div class="form-group full-width"><label>Producto:</label><input type="text" id="co_query" autocomplete="off"><div id="co_sugerencias" class="hidden" style="background:var(--bg-card); border:1px solid var(--border-color); margin-top:4px;"></div></div>
         <input type="hidden" id="co_prod_id">
         <p class="full-width" style="font-size:0.75rem; color:var(--text-muted); margin:-0.5rem 0 0;"><i class="fas fa-barcode"></i> Escanea con tu lector USB en cualquier momento y el producto se busca solo, sin hacer clic aquí.</p>
-        <div class="form-group"><label>Cantidad a Sumar:</label><input type="number" id="co_cantidad" required min="1"></div>
+
+        <div id="co_infoProducto" class="full-width hidden" style="background:var(--bg-main); border:1px solid var(--border-color); border-radius:var(--radius); padding:0.8rem 1rem; display:grid; gap:8px; font-size:0.85rem;">
+          <div style="display:flex; flex-wrap:wrap; gap:16px;">
+            <span>📦 Existencia actual: <b id="co_info_stock">0</b></span>
+            <span>💲 Precio compra actual: <b id="co_info_precioCompra">$0.00</b></span>
+            <span>💲 Precio venta actual: <b id="co_info_precioVenta">$0.00</b></span>
+            <span>➕ Nueva existencia: <b id="co_info_nuevaExistencia" style="color:var(--success-color);">0</b></span>
+          </div>
+          <div id="co_info_proveedor" style="color:var(--text-muted);">🏭 Proveedor: N/A</div>
+        </div>
+
+        <div class="form-group"><label>Cantidad a Sumar:</label><input type="number" id="co_cantidad" required min="1" oninput="actualizarNuevaExistenciaCompra()"></div>
         <div class="form-group"><label>Costo Unitario ($):</label><input type="number" id="co_precio" required step="0.01"></div>
+        <div class="form-group"><label>Precio de Venta ($) <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(opcional, para actualizarlo)</span>:</label><input type="number" id="co_precio_venta" step="0.01"></div>
+
+        <div class="form-group full-width" style="border-top:1px dashed var(--border-color); padding-top:0.8rem; margin-top:0.2rem; margin-bottom:-0.4rem;">
+          <label style="font-weight:600;"><i class="fas fa-truck"></i> Proveedor <span style="font-weight:400; color:var(--text-muted);">(opcional)</span></label>
+        </div>
+        <div class="form-group"><label>Nombre del proveedor:</label><input type="text" id="co_prov_nombre" placeholder="N/A"></div>
+        <div class="form-group"><label>Contacto (WhatsApp):</label><input type="text" id="co_prov_whatsapp" placeholder="Opcional"></div>
+        <div class="form-group"><label>Contacto (Correo):</label><input type="email" id="co_prov_correo" placeholder="Opcional"></div>
+
         <div class="full-width"><button type="submit" class="btn primary-btn">Registrar Ingreso</button></div>
       </form>
     </section>
@@ -1117,10 +1180,17 @@
         <!-- Selector de período -->
         <div class="btn-group periodo">
           <button id="rbtn-hoy" onclick="cargarReporte('hoy')" class="active"><i class="fas fa-calendar-day"></i> Hoy</button>
+          <button id="rbtn-dia" onclick="cargarReporte('dia')"><i class="fas fa-calendar-check"></i> Día específico</button>
           <button id="rbtn-semana" onclick="cargarReporte('semana')"><i class="fas fa-calendar-week"></i> Semana</button>
           <button id="rbtn-mes" onclick="cargarReporte('mes')"><i class="fas fa-calendar-alt"></i> Mes</button>
           <button id="rbtn-anio" onclick="cargarReporte('anio')"><i class="fas fa-calendar"></i> Año</button>
           <button id="rbtn-todo" onclick="cargarReporte('todo')"><i class="fas fa-infinity"></i> Todo</button>
+        </div>
+
+        <!-- Selector de fecha puntual (solo visible cuando "Día específico" está activo) -->
+        <div class="btn-group" id="selectorDiaWrap" style="display:none;">
+          <input type="date" id="selectorDia" onchange="cargarReporte('dia')"
+            style="border:none; padding:8px 14px; font-weight:600; background:var(--bg-card); color:var(--text-main); cursor:pointer;">
         </div>
 
         <!-- Selector de año (solo visible cuando el período "Año" está activo) -->
@@ -1133,11 +1203,25 @@
         <div class="btn-group export export-btn-group" id="exportBtns" style="display:none;">
           <button class="pdf-btn" onclick="exportarPDF()"><i class="fas fa-file-pdf"></i> Exportar PDF</button>
           <button class="excel-btn" onclick="exportarExcel()"><i class="fas fa-file-excel"></i> Exportar Excel</button>
+          <button class="pdf-btn" onclick="exportarTicketsZip()"><i class="fas fa-receipt"></i> Exportar Tickets</button>
         </div>
       </div>
 
       <!-- Resumen cards -->
       <div class="reporte-resumen-grid" id="resumenReporte"></div>
+
+      <!-- Filtro y orden de la tabla de ventas -->
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin:12px 0;">
+        <input type="text" id="rep_texto" placeholder="🔎 Buscar por cliente o ID de venta..." oninput="renderTablaReporteFiltrada()" style="flex:2; min-width:220px; padding:10px 12px; border:1px solid var(--border-color); border-radius:var(--radius); background:var(--bg-card); color:var(--text-main); font-size:0.9rem;">
+        <select id="rep_orden" onchange="renderTablaReporteFiltrada()" style="flex:1; min-width:200px; padding:10px 12px; border:1px solid var(--border-color); border-radius:var(--radius); background:var(--bg-card); color:var(--text-main); font-size:0.9rem;">
+          <option value="reciente">Más reciente primero</option>
+          <option value="antiguo">Más antiguo primero</option>
+          <option value="precio_asc">Precio: menor a mayor</option>
+          <option value="precio_desc">Precio: mayor a menor</option>
+          <option value="nombre_az">Cliente: A-Z</option>
+          <option value="nombre_za">Cliente: Z-A</option>
+        </select>
+      </div>
 
       <!-- Tabla de ventas -->
       <div class="data-table-container">
@@ -1584,17 +1668,26 @@
     const precio = precioTxt !== '' ? parseFloat(precioTxt) : 0;
     if (!nombre) { marcarCampoInvalido(nombreInput); showToast('Escribe el nombre del producto.', 'error'); nombreInput.focus(); return; }
     limpiarCampoInvalido(nombreInput);
-    // Si el nombre en pantalla sigue siendo el de la sugerencia real que el
-    // usuario eligió (y no lo borró/editó después), se guarda el
-    // producto_id real: así, al reconciliar la venta cuando vuelva la
-    // conexión, ese producto queda emparejado automáticamente sin tener
-    // que buscarlo a mano de nuevo.
-    const coincideConSugerido = productoOfflineSeleccionado && productoOfflineSeleccionado.nombre === nombre;
-    carrito.push({
-      producto_id: coincideConSugerido ? productoOfflineSeleccionado.id : null,
-      nombre: nombre, cantidad: cantidad, precio_unitario: precio, manual: true
-    });
-    productoOfflineSeleccionado = null;
+
+    // Si lo escrito coincide EXACTO (sin importar mayúsculas/minúsculas)
+    // con un solo producto de la copia local del inventario, se trata
+    // como una venta normal (con producto_id y precio real), aunque el
+    // cajero haya escrito el nombre completo a mano en vez de hacer clic
+    // en la sugerencia. El flujo de "Anotado sin conexión · aprox."
+    // queda reservado solo para cuando de verdad no se encuentra el
+    // producto en la base de datos local.
+    const coincidenciasNombre = inventarioGlobal.filter(p => p.nombre.trim().toLowerCase() === nombre.toLowerCase());
+    if (coincidenciasNombre.length === 1) {
+      agregarProductoConocidoCarritoOffline(coincidenciasNombre[0], cantidad);
+      document.getElementById('vo_nombre').value = '';
+      document.getElementById('vo_cantidad').value = '1';
+      document.getElementById('vo_precio').value = '';
+      document.getElementById('vo_sugerencias')?.classList.add('hidden');
+      nombreInput.focus();
+      return;
+    }
+
+    carrito.push({ producto_id: null, nombre: nombre, cantidad: cantidad, precio_unitario: precio, manual: true });
     document.getElementById('vo_nombre').value = '';
     document.getElementById('vo_cantidad').value = '1';
     document.getElementById('vo_precio').value = '';
@@ -1618,9 +1711,7 @@
   // primero en este campo y ahí mismo dispara el lector — igual que el
   // buscador de Ventas online, si lo tecleado/escaneado coincide EXACTO
   // con un código guardado, se agrega directo al carrito sin esperar clic. ──
-  let productoOfflineSeleccionado = null;
   function buscarSugerenciaOfflineCarrito(texto) {
-    productoOfflineSeleccionado = null;
     const sug = document.getElementById('vo_sugerencias');
     const val = texto.trim();
     if (!val || !inventarioGlobal.length) { sug.classList.add('hidden'); return; }
@@ -1640,11 +1731,18 @@
     } else { sug.classList.add('hidden'); }
   }
   function seleccionarSugerenciaOfflineCarrito(p) {
-    productoOfflineSeleccionado = p;
-    document.getElementById('vo_nombre').value = p.nombre;
-    document.getElementById('vo_precio').value = parseFloat(p.precio_venta).toFixed(2);
+    // Coincidencia confirmada por el cajero (clic en la sugerencia): se
+    // agrega directo al carrito como venta normal, con el producto_id y
+    // precio reales — NO pasa por el flujo de "Anotado sin conexión",
+    // ya que ese flujo es solo para productos que de verdad no se
+    // encontraron en la base de datos local.
+    const cantidad = parseInt(document.getElementById('vo_cantidad').value, 10) || 1;
+    agregarProductoConocidoCarritoOffline(p, cantidad);
+    document.getElementById('vo_nombre').value = '';
+    document.getElementById('vo_cantidad').value = '1';
+    document.getElementById('vo_precio').value = '';
     document.getElementById('vo_sugerencias').classList.add('hidden');
-    document.getElementById('vo_cantidad').focus();
+    document.getElementById('vo_nombre').focus();
   }
 
   // ── Guardar la venta actual en la cola local (en vez de mandarla al servidor) ──
@@ -1946,16 +2044,43 @@
           <i class="fas fa-triangle-exclamation"></i> ${gruposCodigosDuplicadosActual.length} código(s) repetido(s), entre ${res.total_productos || 0} productos.
         </p>
         ${gruposCodigosDuplicadosActual.map((grupo, i) => `
-          <div style="background:var(--bg-main); border:1px solid var(--border-color); border-radius:var(--radius); padding:0.9rem; margin-bottom:0.9rem;">
+          <div class="grupo-duplicado" data-grupo="${i}" style="background:var(--bg-main); border:1px solid var(--border-color); border-radius:var(--radius); padding:0.9rem; margin-bottom:0.9rem;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:0.6rem;">
               <b style="font-family:monospace; word-break:break-all;">${grupo[0].codigo}</b>
               <button class="btn secondary-btn" style="padding:4px 10px; font-size:0.78rem; white-space:nowrap;" onclick="corregirDuplicadoEnEditor(${i})">
                 <i class="fas fa-pen"></i> Corregir
               </button>
             </div>
-            <ul style="margin:0; padding-left:1.1rem; font-size:0.85rem; color:var(--text-muted);">
-              ${grupo.map(p => `<li>${p.nombre}${p.categoria ? ` <span style="opacity:0.7;">(${p.categoria})</span>` : ''} — stock: ${p.stock}</li>`).join('')}
-            </ul>
+            <div style="overflow-x:auto;">
+              <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
+                <thead>
+                  <tr style="color:var(--text-muted); text-align:left;">
+                    <th style="padding:4px 6px;">Código</th>
+                    <th style="padding:4px 6px;">Nombre</th>
+                    <th style="padding:4px 6px;">Categoría</th>
+                    <th style="padding:4px 6px; text-align:right;">Stock</th>
+                    <th style="padding:4px 6px; text-align:right;">P. Compra ($)</th>
+                    <th style="padding:4px 6px; text-align:right;">P. Venta ($)</th>
+                    <th style="padding:4px 6px;"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${grupo.map(p => `
+                    <tr>
+                      <td style="padding:4px 6px; font-family:monospace;">${p.codigo}</td>
+                      <td style="padding:4px 6px;">${p.nombre}</td>
+                      <td style="padding:4px 6px;">${p.categoria || '—'}</td>
+                      <td style="padding:4px 6px; text-align:right;">${p.stock}</td>
+                      <td style="padding:4px 6px; text-align:right;">${parseFloat(p.precio_compra || 0).toFixed(2)}</td>
+                      <td style="padding:4px 6px; text-align:right;">${parseFloat(p.precio_venta || 0).toFixed(2)}</td>
+                      <td style="padding:4px 6px; text-align:right;">
+                        <button class="btn-icon delete" style="width:auto; white-space:nowrap; font-size:0.72rem; padding:3px 8px;" onclick="confirmarEliminarDuplicado(this, '${p.id}', '${String(p.nombre || '').replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i></button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
           </div>
         `).join('')}
       `;
@@ -1974,6 +2099,52 @@
     abrirEditorHojaCalculo();
     document.getElementById('eh_buscar').value = codigo;
     filtrarEditorHoja();
+  }
+
+  // Elimina un producto duplicado directamente desde el reporte, sin tener
+  // que abrir el editor de hoja. Requiere DOS clics para evitar borrados
+  // accidentales: el primero solo cambia el botón a "Confirmar ELIMINAR"
+  // (y se revierte solo si no se confirma en 4 segundos); el segundo clic
+  // ejecuta el borrado real (mueve el producto a la papelera, igual que
+  // eliminarProducto(), pero sin el confirm() nativo del navegador).
+  async function confirmarEliminarDuplicado(btn, id, nombre) {
+    if (btn.dataset.confirmando !== '1') {
+      btn.dataset.confirmando = '1';
+      btn.innerHTML = 'Confirmar ELIMINAR';
+      btn.style.background = 'var(--danger-color)';
+      btn.style.color = '#fff';
+      clearTimeout(btn._revertTimer);
+      btn._revertTimer = setTimeout(() => {
+        btn.dataset.confirmando = '0';
+        btn.innerHTML = '<i class="fas fa-trash"></i>';
+        btn.style.background = '';
+        btn.style.color = '';
+      }, 4000);
+      return;
+    }
+
+    clearTimeout(btn._revertTimer);
+    btn.disabled = true;
+    try {
+      const res = await fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify({action:'eliminarProducto', id:id, usuario:'admin'}) }).then(r => r.json());
+      if (res.status === 'success') {
+        showToast(`"${nombre}" movido a la papelera.`, 'success');
+        const fila = btn.closest('tr');
+        const grupoDiv = btn.closest('.grupo-duplicado');
+        fila.remove();
+        // Si al grupo le queda solo 1 producto (o ninguno), ya no es un
+        // código "duplicado" — se quita la tarjeta completa del grupo.
+        if (grupoDiv && grupoDiv.querySelectorAll('tbody tr').length <= 1) {
+          grupoDiv.remove();
+        }
+      } else {
+        showToast(res.message || 'No se pudo eliminar el producto.', 'error');
+        btn.disabled = false;
+      }
+    } catch(e) {
+      showToast('Error de conexión con el servidor.', 'error');
+      btn.disabled = false;
+    }
   }
 
   // ── Editor de hoja de cálculo: estado del buscador + scroll virtual ──
@@ -3565,6 +3736,7 @@
       if (item) {
         document.getElementById('co_query').value = item.nombre;
         document.getElementById('co_prod_id').value = item.id;
+        mostrarInfoProductoCompra(item);
         document.getElementById('co_cantidad').focus();
         dispararAccionExitosa(`Producto encontrado: ${item.nombre}`);
       } else {
@@ -3588,6 +3760,19 @@
     } else {
       carrito.push({ producto_id: p.id, nombre: p.nombre, cantidad: 1, precio_unitario: parseFloat(p.precio_venta) });
     }
+    renderCarrito();
+    dispararAccionExitosa(`Añadido: ${p.nombre}`);
+  }
+
+  // ── Igual que agregarItemAlCarrito, pero respetando una cantidad
+  // específica (usada al elegir una sugerencia offline, donde el
+  // cajero puede haber puesto una cantidad distinta de 1 antes de
+  // encontrar el producto en la lista). ──
+  function agregarProductoConocidoCarritoOffline(p, cantidad) {
+    const cant = (cantidad && cantidad > 0) ? cantidad : 1;
+    const exist = carrito.find(x => x.producto_id === p.id);
+    if (exist) exist.cantidad += cant;
+    else carrito.push({ producto_id: p.id, nombre: p.nombre, cantidad: cant, precio_unitario: parseFloat(p.precio_venta) });
     renderCarrito();
     dispararAccionExitosa(`Añadido: ${p.nombre}`);
   }
@@ -3893,11 +4078,27 @@
         return;
       }
       limpiarCampoInvalido(co_query);
-      const payload = { action: 'registrarCompra', producto_id: document.getElementById('co_prod_id').value, cantidad: document.getElementById('co_cantidad').value, precio_compra: document.getElementById('co_precio').value, usuario: 'admin' };
+      const payload = {
+        action: 'registrarCompra',
+        producto_id: document.getElementById('co_prod_id').value,
+        cantidad: document.getElementById('co_cantidad').value,
+        precio_compra: document.getElementById('co_precio').value,
+        precio_venta: document.getElementById('co_precio_venta').value,
+        proveedor_nombre: document.getElementById('co_prov_nombre').value.trim(),
+        proveedor_whatsapp: document.getElementById('co_prov_whatsapp').value.trim(),
+        proveedor_correo: document.getElementById('co_prov_correo').value.trim(),
+        usuario: 'admin'
+      };
       showSpinner('Registrando compra...');
       try {
         const res = await fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify(payload) }).then(r => r.json());
-        if (res.status === 'success') { dispararAccionExitosa('Ingreso registrado.'); e.target.reset(); limpiarValidacionEn(e.target); await loadInventario(); }
+        if (res.status === 'success') {
+          dispararAccionExitosa('Ingreso registrado.');
+          e.target.reset();
+          limpiarValidacionEn(e.target);
+          document.getElementById('co_infoProducto').classList.add('hidden');
+          await loadInventario();
+        }
         else { showToast(res.message || 'Error al registrar la compra.', 'error'); }
       } catch(err) { showToast('Error de conexión con el servidor.', 'error'); }
       hideSpinner();
@@ -3935,10 +4136,61 @@
     );
     const sug = document.getElementById('co_sugerencias');
     if(match.length) {
-      sug.innerHTML = match.map(p => `<div style="padding:10px; cursor:pointer;" onclick='document.getElementById("co_query").value="${p.nombre}"; document.getElementById("co_prod_id").value="${p.id}"; document.getElementById("co_sugerencias").classList.add("hidden");'>${p.nombre}</div>`).join('');
+      sug.innerHTML = match.map(p => `<div style="padding:10px; cursor:pointer;" onclick='seleccionarProductoCompra("${p.id}")'>${p.nombre}</div>`).join('');
       sug.classList.remove('hidden');
     }
   });
+
+  // Al elegir un producto en Compras (por sugerencia, o por lectura de
+  // código de barras) se muestra su existencia/precios actuales y, si ya
+  // tiene un proveedor guardado, sus datos — para editarlos ahí mismo sin
+  // tener que ir a otra pantalla.
+  function seleccionarProductoCompra(id) {
+    const item = inventarioGlobal.find(p => p.id === id);
+    if (!item) return;
+    document.getElementById('co_query').value = item.nombre;
+    document.getElementById('co_prod_id').value = item.id;
+    document.getElementById('co_sugerencias').classList.add('hidden');
+    mostrarInfoProductoCompra(item);
+  }
+
+  function mostrarInfoProductoCompra(item) {
+    document.getElementById('co_infoProducto').classList.remove('hidden');
+    document.getElementById('co_info_stock').textContent = parseInt(item.stock) || 0;
+    document.getElementById('co_info_precioCompra').textContent = '$' + parseFloat(item.precio_compra || 0).toFixed(2);
+    document.getElementById('co_info_precioVenta').textContent = '$' + parseFloat(item.precio_venta || 0).toFixed(2);
+
+    const provNombre = String(item.proveedor_nombre || '').trim();
+    const provWa = String(item.proveedor_whatsapp || '').trim();
+    const provCo = String(item.proveedor_correo || '').trim();
+    const provFecha = item.proveedor_fecha_entrada ? new Date(item.proveedor_fecha_entrada).toLocaleDateString('es-SV') : '';
+
+    const infoProv = document.getElementById('co_info_proveedor');
+    if (!provNombre) {
+      infoProv.innerHTML = '🏭 Proveedor: <b>N/A</b>';
+    } else {
+      const contactos = [provWa ? `WhatsApp: ${provWa}` : '', provCo ? `Correo: ${provCo}` : ''].filter(Boolean).join(' · ');
+      infoProv.innerHTML = `🏭 Proveedor: <b>${provNombre}</b>${contactos ? ' · ' + contactos : ''}${provFecha ? ` · Última entrada: ${provFecha}` : ''}`;
+    }
+
+    // Se prellenan los campos editables con lo que ya se tiene guardado,
+    // para que solo haya que tocar lo que realmente se quiera cambiar.
+    document.getElementById('co_precio').value = item.precio_compra || '';
+    document.getElementById('co_precio_venta').value = item.precio_venta || '';
+    document.getElementById('co_prov_nombre').value = provNombre;
+    document.getElementById('co_prov_whatsapp').value = provWa;
+    document.getElementById('co_prov_correo').value = provCo;
+
+    actualizarNuevaExistenciaCompra();
+  }
+
+  function actualizarNuevaExistenciaCompra() {
+    const item = inventarioGlobal.find(p => p.id === document.getElementById('co_prod_id').value);
+    const stockActual = item ? (parseInt(item.stock) || 0) : 0;
+    const cantidad = parseInt(document.getElementById('co_cantidad').value) || 0;
+    const el = document.getElementById('co_info_nuevaExistencia');
+    if (el) el.textContent = stockActual + cantidad;
+  }
 
   // REPORTES ─────────────────────────────────────────────────────
   let reporteActualDatos = [];
@@ -3974,10 +4226,20 @@
     reporteActualPeriodo = periodo;
 
     // Actualizar botones activos
-    ['hoy','semana','mes','anio','todo'].forEach(p => {
+    ['hoy','dia','semana','mes','anio','todo'].forEach(p => {
       const btn = document.getElementById('rbtn-' + p);
       if (btn) btn.classList.toggle('active', p === periodo);
     });
+
+    // Mostrar/ocultar el selector de fecha puntual según el período elegido
+    const wrapDia = document.getElementById('selectorDiaWrap');
+    if (wrapDia) wrapDia.style.display = (periodo === 'dia') ? 'flex' : 'none';
+    const inputDia = document.getElementById('selectorDia');
+    if (periodo === 'dia' && inputDia && !inputDia.value) {
+      // Primera vez que se activa este período: se propone hoy por defecto.
+      const hoyStr = new Date().toISOString().slice(0, 10);
+      inputDia.value = hoyStr;
+    }
 
     // Mostrar/ocultar el selector de año según el período elegido
     const wrapAnio = document.getElementById('selectorAnioWrap');
@@ -3988,9 +4250,16 @@
     let ini = new Date();
     let fin = hoy;
     let anioSel = null;
+    let diaSel = null;
     if (periodo === 'semana') ini.setDate(hoy.getDate() - 7);
     if (periodo === 'mes') ini = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
     if (periodo === 'hoy') { ini = new Date(hoy); ini.setHours(0,0,0,0); }
+    if (periodo === 'dia') {
+      diaSel = (inputDia && inputDia.value) ? inputDia.value : new Date().toISOString().slice(0, 10);
+      const [aa, mm, dd] = diaSel.split('-').map(Number);
+      ini = new Date(aa, mm - 1, dd, 0, 0, 0);
+      fin = new Date(aa, mm - 1, dd, 23, 59, 59);
+    }
     if (periodo === 'anio') {
       const select = document.getElementById('selectorAnio');
       anioSel = parseInt(select && select.value) || hoy.getFullYear();
@@ -4028,7 +4297,7 @@
       const diasConVentas = Object.keys(porDia).length;
       const promedioTicket = ventas.length ? totalVentas / ventas.length : 0;
 
-      const labels = { hoy: 'Hoy', semana: 'Esta semana', mes: 'Este mes', anio: `Año ${anioSel || ''}`, todo: 'Histórico completo' };
+      const labels = { hoy: 'Hoy', dia: diaSel ? `Día ${new Date(diaSel + 'T00:00:00').toLocaleDateString('es-SV')}` : 'Día específico', semana: 'Esta semana', mes: 'Este mes', anio: `Año ${anioSel || ''}`, todo: 'Histórico completo' };
       document.getElementById('resumenReporte').innerHTML = `
         <div class="resumen-card"><div class="val">$${totalVentas.toFixed(2)}</div><div class="lbl">Total recaudado · ${labels[periodo]}</div></div>
         <div class="resumen-card"><div class="val">${ventas.length}</div><div class="lbl">Tickets / Ventas</div></div>
@@ -4036,25 +4305,9 @@
         <div class="resumen-card"><div class="val">${diasConVentas}</div><div class="lbl">Días con actividad</div></div>
       `;
 
-      // ── Tabla ──
+      // ── Tabla (con filtro/orden aplicados) ──
       document.getElementById('repHead').innerHTML = '<tr><th>ID Venta</th><th>Fecha y Hora</th><th>Cliente</th><th>WhatsApp</th><th>Correo</th><th>Subtotal</th><th>Total</th><th>Detalle</th></tr>';
-      document.getElementById('repBody').innerHTML = ventas.length
-        ? ventas.map((v, i) => {
-            const f   = new Date(v.fecha);
-            const sub = parseFloat(v.subtotal) || parseFloat(v.total) || 0;
-            const tot = parseFloat(v.total) || sub;
-            return `<tr onclick="verDetalleVenta(${i})" style="cursor:pointer;" title="Ver detalle de la venta">
-              <td><code style="font-size:0.75rem;">${v.id.slice(-8)}</code></td>
-              <td>${f.toLocaleDateString('es-SV')} ${f.toLocaleTimeString('es-SV', {hour:'2-digit',minute:'2-digit'})}</td>
-              <td>${v.cliente_nombre || 'N/A'}</td>
-              <td style="font-size:0.8rem;">${v.cliente_whatsapp || 'N/A'}</td>
-              <td style="font-size:0.8rem;">${v.cliente_correo || 'N/A'}</td>
-              <td>$${sub.toFixed(2)}</td>
-              <td><b style="color:var(--success-color);">$${tot.toFixed(2)}</b></td>
-              <td><button class="btn-icon edit" onclick="event.stopPropagation(); verDetalleVenta(${i})" title="Ver detalle"><i class="fas fa-eye"></i></button></td>
-            </tr>`;
-          }).join('')
-        : '<tr><td colspan="8" class="text-center text-muted" style="padding:2rem;">Sin ventas en este período.</td></tr>';
+      renderTablaReporteFiltrada();
 
       if (ventas.length) document.getElementById('exportBtns').style.display = 'flex';
 
@@ -4085,8 +4338,54 @@
     return (precioUnitarioItem(item) * (parseInt(item.cantidad) || 0)) - descuentoItem(item);
   }
 
-  function verDetalleVenta(index) {
-    const v = reporteActualDatos[index];
+  // ── Filtra (por cliente o ID) y ordena la tabla de Reportes, sin
+  // afectar las tarjetas de resumen (que siempre reflejan el período
+  // completo elegido arriba). Se usa tanto al escribir en el buscador
+  // como al cambiar el período o el orden. ──
+  function renderTablaReporteFiltrada() {
+    const textoInput = document.getElementById('rep_texto');
+    const ordenInput = document.getElementById('rep_orden');
+    const texto = (textoInput ? textoInput.value : '').trim().toLowerCase();
+    const orden = ordenInput ? ordenInput.value : 'reciente';
+
+    let vista = (reporteActualDatos || []).slice();
+
+    if (texto) {
+      vista = vista.filter(v =>
+        (v.cliente_nombre || '').toLowerCase().includes(texto) ||
+        (v.id || '').toLowerCase().includes(texto)
+      );
+    }
+
+    const totalDe = v => parseFloat(v.total) || parseFloat(v.subtotal) || 0;
+    if (orden === 'antiguo') vista.sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
+    else if (orden === 'precio_asc') vista.sort((a,b) => totalDe(a) - totalDe(b));
+    else if (orden === 'precio_desc') vista.sort((a,b) => totalDe(b) - totalDe(a));
+    else if (orden === 'nombre_az') vista.sort((a,b) => (a.cliente_nombre||'').localeCompare(b.cliente_nombre||''));
+    else if (orden === 'nombre_za') vista.sort((a,b) => (b.cliente_nombre||'').localeCompare(a.cliente_nombre||''));
+    else vista.sort((a,b) => new Date(b.fecha) - new Date(a.fecha)); // 'reciente' (por defecto)
+
+    document.getElementById('repBody').innerHTML = vista.length
+      ? vista.map(v => {
+          const f   = new Date(v.fecha);
+          const sub = parseFloat(v.subtotal) || parseFloat(v.total) || 0;
+          const tot = parseFloat(v.total) || sub;
+          return `<tr onclick="verDetalleVenta('${v.id}')" style="cursor:pointer;" title="Ver detalle de la venta">
+            <td><code style="font-size:0.75rem;">${v.id.slice(-8)}</code></td>
+            <td>${f.toLocaleDateString('es-SV')} ${f.toLocaleTimeString('es-SV', {hour:'2-digit',minute:'2-digit'})}</td>
+            <td>${v.cliente_nombre || 'N/A'}</td>
+            <td style="font-size:0.8rem;">${v.cliente_whatsapp || 'N/A'}</td>
+            <td style="font-size:0.8rem;">${v.cliente_correo || 'N/A'}</td>
+            <td>$${sub.toFixed(2)}</td>
+            <td><b style="color:var(--success-color);">$${tot.toFixed(2)}</b></td>
+            <td><button class="btn-icon edit" onclick="event.stopPropagation(); verDetalleVenta('${v.id}')" title="Ver detalle"><i class="fas fa-eye"></i></button></td>
+          </tr>`;
+        }).join('')
+      : `<tr><td colspan="8" class="text-center text-muted" style="padding:2rem;">${texto ? 'Sin resultados para tu búsqueda.' : 'Sin ventas en este período.'}</td></tr>`;
+  }
+
+  function verDetalleVenta(id) {
+    const v = reporteActualDatos.find(x => x.id === id);
     if (!v) return;
     ventaDetalleActual = v;
 
@@ -5082,6 +5381,53 @@
     }
   }
 
+  // ── EXPORTAR TICKETS (.zip con un PDF de recibo por cada venta) ──
+  // Usa el mismo período ya seleccionado arriba (Hoy / Día específico /
+  // Semana / Mes / Año / Todo) y reutiliza construirDocTicketPDF(), la
+  // misma función que arma el ticket individual que se ve en "Detalle
+  // de Venta". Cada ticket se agrega como un PDF separado dentro del zip.
+  async function exportarTicketsZip() {
+    if (!reporteActualDatos.length) return showToast('No hay ventas para exportar en este período.', 'warning');
+    if (typeof JSZip === 'undefined') return showToast('No se pudo cargar la librería para generar el .zip. Revisa tu conexión e intenta de nuevo.', 'error');
+
+    showSpinner(`Generando ${reporteActualDatos.length} ticket(s)...`);
+    try {
+      const zip = new JSZip();
+      const nombresUsados = {};
+
+      reporteActualDatos.forEach(v => {
+        const doc = construirDocTicketPDF(v);
+        const f = new Date(v.fecha);
+        const fechaTxt = f.toISOString().slice(0, 10);
+        const idCorto = (v.id || '').toString().slice(-8) || 'sinid';
+        let nombreArchivo = `Ticket_${fechaTxt}_${idCorto}.pdf`;
+        // Evitar sobreescribir si dos ventas terminan con el mismo nombre.
+        if (nombresUsados[nombreArchivo]) {
+          nombresUsados[nombreArchivo]++;
+          nombreArchivo = `Ticket_${fechaTxt}_${idCorto}_${nombresUsados[nombreArchivo]}.pdf`;
+        } else {
+          nombresUsados[nombreArchivo] = 1;
+        }
+        zip.file(nombreArchivo, doc.output('blob'));
+      });
+
+      const contenidoZip = await zip.generateAsync({ type: 'blob' });
+      const etiquetaPeriodo = { hoy:'Hoy', dia:'DiaEspecifico', semana:'Semana', mes:'Mes', anio:'Anio', todo:'Todo' }[reporteActualPeriodo] || reporteActualPeriodo;
+      const nombreZip = `Tickets_${etiquetaPeriodo}_${new Date().toISOString().slice(0,10)}.zip`;
+
+      const url = URL.createObjectURL(contenidoZip);
+      const a = document.createElement('a');
+      a.href = url; a.download = nombreZip;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+
+      dispararAccionExitosa(`${reporteActualDatos.length} ticket(s) exportado(s) en ${nombreZip}`);
+    } catch(e) {
+      showToast('Error al generar el .zip de tickets.', 'error');
+    }
+    hideSpinner();
+  }
+
   // ── EXPORTAR PDF ────────────────────────────────────────────────
   function exportarPDF() {
     if (!reporteActualDatos.length) return showToast('No hay datos para exportar.', 'warning');
@@ -5474,10 +5820,7 @@
         <td style="white-space:nowrap;">
           <button class="btn-icon edit" title="Editar" onclick="abrirModalResponsable('${r.id}')"><i class="fas fa-edit"></i></button>
           <button class="btn-icon delete" title="Eliminar" onclick="eliminarResponsable('${r.id}', '${r.email}')"><i class="fas fa-trash"></i></button>
-          ${reportes.includes('mensual') ? `<button class="btn-icon" style="background:var(--primary-light); color:var(--primary-color);" title="Enviar reporte mensual ahora (prueba)" onclick="enviarReporteAhora('${r.id}', 'mensual')"><i class="fas fa-paper-plane"></i></button>` : ''}
-          ${reportes.includes('anual') ? `<button class="btn-icon" style="background:var(--primary-light); color:var(--primary-color);" title="Enviar reporte anual ahora (prueba)" onclick="enviarReporteAhora('${r.id}', 'anual')"><i class="fas fa-calendar-check"></i></button>` : ''}
-          ${reportes.includes('backup_json') ? `<button class="btn-icon" style="background:var(--primary-light); color:var(--primary-color);" title="Enviar copia de seguridad JSON ahora (prueba)" onclick="enviarReporteAhora('${r.id}', 'backup_json')"><i class="fas fa-file-code"></i></button>` : ''}
-          ${reportes.includes('backup_csv') ? `<button class="btn-icon" style="background:var(--primary-light); color:var(--primary-color);" title="Enviar copia de seguridad CSV ahora (prueba)" onclick="enviarReporteAhora('${r.id}', 'backup_csv')"><i class="fas fa-file-csv"></i></button>` : ''}
+          <button class="btn-icon" style="background:var(--primary-light); color:var(--primary-color);" title="Enviar reporte ahora" onclick="abrirModalEnviarResponsable('${r.id}', '${r.email}')"><i class="fas fa-paper-plane"></i></button>
         </td>
       </tr>`;
     }).join('');
@@ -5555,10 +5898,74 @@
     } catch(e) { hideSpinner(); showToast('Error de conexión.', 'error'); }
   }
 
-  async function enviarReporteAhora(id, tipo) {
-    showSpinner('Enviando reporte de prueba...');
+  // ── Modal "Enviar Reporte" (prueba / real / todo / cancelar) ──
+  // Paso 1: elegir el modo. Paso 2: dentro de ese modo, un checklist con
+  // los tipos de reporte aplicables (los suscritos para prueba/real, los
+  // 6 disponibles para "todo") para poder seleccionarlos uno a uno o
+  // dejarlos todos marcados (equivalente a "enviar todos") con un solo
+  // botón "Enviar seleccionados".
+  let responsableEnvioActualId = null;
+  let envioRespModoActual = null;
+  function abrirModalEnviarResponsable(id, email) {
+    responsableEnvioActualId = id;
+    document.getElementById('enviarResp_email').textContent = email;
+    document.getElementById('envioResp_paso2').classList.add('hidden');
+    document.getElementById('envioResp_paso1').classList.remove('hidden');
+    document.getElementById('modalEnviarResponsable').classList.remove('hidden');
+  }
+
+  function elegirModoEnvio(modo) {
+    const resp = responsablesGlobal.find(r => r.id === responsableEnvioActualId);
+    if (!resp) return;
+    const tiposDisponibles = modo === 'todo'
+      ? Object.keys(REPORTES_LABEL)
+      : String(resp.reportes || '').split(',').filter(t => REPORTES_LABEL[t]);
+
+    if (!tiposDisponibles.length) {
+      showToast('Este responsable no tiene ningún reporte suscrito. Edítalo para elegir al menos uno, o usa "Enviar todo".', 'error');
+      return;
+    }
+
+    envioRespModoActual = modo;
+    const titulos = { prueba: '🧪 Prueba — elige qué enviar', real: '✅ Real — elige qué enviar', todo: '📦 Todo — elige qué enviar' };
+    document.getElementById('envioResp_paso2Titulo').textContent = titulos[modo] || 'Elige qué enviar';
+    document.getElementById('envioResp_lista').innerHTML = tiposDisponibles.map(t => `
+      <label style="display:flex; align-items:center; gap:8px; font-size:0.85rem; cursor:pointer;">
+        <input type="checkbox" class="envioResp_check" value="${t}" style="width:auto;" checked onchange="sincronizarCheckTodosEnvioResp()">
+        ${REPORTES_LABEL[t] || t}
+      </label>
+    `).join('');
+    document.getElementById('envioResp_todosCheck').checked = true;
+    document.getElementById('envioResp_paso1').classList.add('hidden');
+    document.getElementById('envioResp_paso2').classList.remove('hidden');
+  }
+
+  function toggleTodosEnvioResp(marcado) {
+    document.querySelectorAll('.envioResp_check').forEach(cb => cb.checked = marcado);
+  }
+
+  function sincronizarCheckTodosEnvioResp() {
+    const boxes = Array.from(document.querySelectorAll('.envioResp_check'));
+    document.getElementById('envioResp_todosCheck').checked = boxes.length > 0 && boxes.every(cb => cb.checked);
+  }
+
+  function volverPasoModoEnvio() {
+    document.getElementById('envioResp_paso2').classList.add('hidden');
+    document.getElementById('envioResp_paso1').classList.remove('hidden');
+  }
+
+  async function enviarSeleccionResponsable() {
+    const id = responsableEnvioActualId;
+    const modo = envioRespModoActual;
+    if (!id || !modo) return;
+    const tipos = Array.from(document.querySelectorAll('.envioResp_check:checked')).map(cb => cb.value);
+    if (!tipos.length) { showToast('Selecciona al menos un reporte para enviar.', 'error'); return; }
+
+    cerrarModal('modalEnviarResponsable');
+    const etiquetas = { prueba:'de prueba (datos de ejemplo)', real:'con datos reales', todo:'de todos los reportes' };
+    showSpinner(`Enviando reporte(s) ${etiquetas[modo] || ''}...`);
     try {
-      const res = await fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify({ action:'enviarReporteResponsable', id, tipo }) }).then(r => r.json());
+      const res = await fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify({ action:'enviarReporteResponsable', id, modo, tipos }) }).then(r => r.json());
       hideSpinner();
       if (res.status === 'success') showToast(res.message, 'success');
       else showToast(res.message || 'Error al enviar.', 'error');

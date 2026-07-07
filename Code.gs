@@ -100,7 +100,7 @@ function getCodigosDuplicados() {
     if (!codigo) return;
     const clave = ignorarCeros ? normalizarCodigo_(codigo) : codigo.toLowerCase();
     if (!grupos[clave]) grupos[clave] = [];
-    grupos[clave].push({ id: p.id, nombre: p.nombre, codigo: codigo, categoria: p['categoría'], stock: p.stock, precio_venta: p.precio_venta });
+    grupos[clave].push({ id: p.id, nombre: p.nombre, codigo: codigo, categoria: p['categoría'], stock: p.stock, precio_compra: p.precio_compra, precio_venta: p.precio_venta });
   });
   const duplicados = Object.keys(grupos).map(k => grupos[k]).filter(g => g.length > 1);
   duplicados.sort((a, b) => b.length - a.length);
@@ -114,7 +114,7 @@ function getCodigosDuplicados() {
 
 const HDR = {
   Categorias:    ["id","nombre","emoji","activo"],
-  Productos:     ["id","nombre","código","categoría","precio_compra","precio_venta","stock","stock_minimo","imagen_url","favorito","activo","fecha_creado"],
+  Productos:     ["id","nombre","código","categoría","precio_compra","precio_venta","stock","stock_minimo","imagen_url","favorito","activo","fecha_creado","proveedor_nombre","proveedor_whatsapp","proveedor_correo","proveedor_fecha_entrada"],
   Compras:       ["id","producto_id","cantidad","precio_compra","fecha","usuario","notas"],
   Ventas:        ["id","fecha","cliente_nombre","cliente_whatsapp","cliente_correo","subtotal","descuento","impuesto","total","pago_con","cambio","usuario","estado"],
   VentaDetalle:  ["id","venta_id","producto_id","producto_nombre","cantidad","precio_unitario","descuento_linea","subtotal_linea"],
@@ -356,12 +356,32 @@ function registrarVenta(data) {
   };
 }
 
+// Registra un ingreso de mercadería. Además de sumar al stock y dejar
+// constancia en la hoja de Compras (como antes), ahora también:
+//   - Actualiza el precio_compra del producto con el costo unitario de
+//     este ingreso (así el producto siempre refleja el último costo).
+//   - Si se envía precio_venta (opcional), también lo actualiza — útil
+//     para ajustar el precio de venta justo cuando llega mercadería nueva.
+//   - Si se envía información de proveedor (nombre/whatsapp/correo), la
+//     guarda en el producto y marca la fecha de esta entrada como la
+//     "última entrada" de ese proveedor. Si el producto no tenía
+//     proveedor y se deja en blanco, simplemente se queda como N/A.
 function registrarCompra(data) {
   const shP = sh(H_PRODUCTOS); const {row, idx} = findRow(shP, data.producto_id);
   if (!row) return {status:'error', message:'Producto no encontrado.'};
   const cantidad = parseInt(data.cantidad)||0;
-  sh(H_COMPRAS).appendRow([uid(), data.producto_id, cantidad, parseFloat(data.precio_compra)||0, new Date(), data.usuario||'Sistema', data.notas||'']);
+  const precioCompra = parseFloat(data.precio_compra)||0;
+  sh(H_COMPRAS).appendRow([uid(), data.producto_id, cantidad, precioCompra, new Date(), data.usuario||'Sistema', data.notas||'']);
   shP.getRange(idx+1,7).setValue((parseInt(shP.getRange(idx+1,7).getValue())||0) + cantidad);
+  shP.getRange(idx+1,5).setValue(precioCompra);
+  if (data.precio_venta !== undefined && String(data.precio_venta).trim() !== '') {
+    shP.getRange(idx+1,6).setValue(parseFloat(data.precio_venta)||0);
+  }
+  const provNombre = String(data.proveedor_nombre||'').trim();
+  shP.getRange(idx+1,13).setValue(provNombre);
+  shP.getRange(idx+1,14).setValue(String(data.proveedor_whatsapp||'').trim());
+  shP.getRange(idx+1,15).setValue(String(data.proveedor_correo||'').trim());
+  if (provNombre) shP.getRange(idx+1,16).setValue(new Date());
   log(data.usuario, 'Compra', `${row[1]} x${cantidad}`);
   return {status:'success', message:`Compra registrada con éxito. Inventario actualizado.`};
 }
@@ -795,50 +815,236 @@ function construirHtmlResumen_(titulo, fechaIni, fechaFin) {
     </div>`;
 }
 
+// Etiquetas legibles de cada tipo de reporte, usadas en mensajes de error.
+const REPORTES_LABEL_ = {
+  mensual: 'Resumen mensual', anual: 'Resumen anual', ventas_grandes: 'Aviso de venta grande',
+  stock_bajo: 'Alerta de stock bajo', backup_json: 'Backup JSON', backup_csv: 'Backup CSV'
+};
+
+// ── Envío manual de reportes ("Enviar Reporte" en el frontend) ──
+// A diferencia del envío automático programado (enviarReportesProgramados,
+// más abajo), este envío es a pedido del usuario desde la pantalla de
+// Responsables y NO actualiza las columnas de "último envío" — así no
+// interfiere con la programación automática, sin importar cuántas veces
+// se use. Admite 3 modos (data.modo):
+//   'prueba' → envía SOLO los tipos a los que el responsable está
+//              suscrito, con datos de EJEMPLO (ficticios), para poder
+//              probar sin exponer información real del negocio.
+//   'real'   → envía SOLO los tipos a los que el responsable está
+//              suscrito, con los datos REALES actuales del sistema.
+//   'todo'   → envía los 6 tipos de reporte disponibles (sin importar la
+//              suscripción), con datos reales — para probar el sistema
+//              completo de punta a punta con esa dirección de correo.
+// Además, el frontend deja elegir (con checkboxes) CUÁLES de esos tipos
+// enviar en concreto en vez de mandarlos todos de una — para eso puede
+// mandar opcionalmente data.tipos (array de tipos). Si se manda, se
+// respeta como un filtro sobre lo que el modo ya permite (así alguien no
+// puede pedir, por ejemplo, un tipo al que no está suscrito usando el
+// modo 'real'). Si no se manda (o llega vacío), se usa el listado
+// completo que el modo permite — igual que antes.
 function enviarReporteResponsableManual(data) {
   const d = getData(H_RESPONSABLES).data || [];
   const resp = d.find(r => r.id === data.id);
   if (!resp) return {status:'error', message:'Responsable no encontrado.'};
 
-  if (data.tipo === 'backup_json' || data.tipo === 'backup_csv') {
-    try {
-      const esJson = data.tipo === 'backup_json';
-      const adjunto = esJson ? construirBackupJSONBlob_() : construirBackupCSVBlob_();
-      const titulo = esJson ? '📅📊 Copia de seguridad (JSON)' : '📅📊 Copia de seguridad (CSV)';
-      const html = `
-        <div style="font-family:Arial,sans-serif; max-width:480px; margin:0 auto; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
-          <div style="background:#091933; color:#fff; padding:14px 20px;"><h2 style="margin:0; font-size:17px;">${titulo}</h2></div>
-          <div style="padding:18px 20px;">
-            <p style="margin:4px 0;">Adjunto va la copia de seguridad completa del sistema (${esJson ? 'un solo archivo .json' : 'archivos .csv dentro de un .zip'}), generada el ${new Date().toLocaleString('es-SV')}.</p>
-            <p style="margin:12px 0 0; font-size:11px; color:#9ca3af;">Este archivo se puede volver a subir en "Importar / Exportar Datos" para restaurar la información.</p>
-          </div>
-        </div>`;
-      enviarCorreoConAdjunto_(resp.email, titulo, html, adjunto);
-      log(data.usuario, 'Responsable - Envío manual', `${resp.email} (${data.tipo})`);
-      return {status:'success', message:`Copia de seguridad enviada a ${resp.email}.`};
-    } catch(e) {
-      return {status:'error', message:'No se pudo enviar la copia de seguridad: ' + e.message};
-    }
+  const modo = ['prueba','real','todo'].includes(data.modo) ? data.modo : 'real';
+  const esPrueba = modo === 'prueba';
+  const tiposPermitidos = modo === 'todo'
+    ? REPORTES_DISPONIBLES.slice()
+    : String(resp.reportes || '').split(',').filter(t => REPORTES_DISPONIBLES.includes(t));
+
+  if (!tiposPermitidos.length) {
+    return {status:'error', message:'Este responsable no tiene ningún reporte suscrito. Edítalo para elegir al menos uno, o usa "Enviar todo".'};
   }
 
-  const hoy = new Date();
-  let fi, ff, titulo;
-  if (data.tipo === 'anual') {
-    fi = new Date(hoy.getFullYear() - 1, 0, 1);
-    ff = new Date(hoy.getFullYear() - 1, 11, 31, 23, 59, 59);
-    titulo = `📊 Reporte Anual ${hoy.getFullYear() - 1}`;
-  } else {
-    fi = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
-    ff = new Date(hoy.getFullYear(), hoy.getMonth(), 0, 23, 59, 59);
-    titulo = `📊 Reporte Mensual — ${fi.toLocaleDateString('es-SV', {month:'long', year:'numeric'})}`;
+  const tipos = Array.isArray(data.tipos) && data.tipos.length
+    ? tiposPermitidos.filter(t => data.tipos.includes(t))
+    : tiposPermitidos;
+
+  if (!tipos.length) {
+    return {status:'error', message:'Ninguno de los reportes seleccionados corresponde a este responsable.'};
   }
-  try {
-    enviarCorreo_(resp.email, titulo, construirHtmlResumen_(titulo, fi, ff));
-    log(data.usuario, 'Responsable - Envío manual', `${resp.email} (${data.tipo})`);
-    return {status:'success', message:`Reporte enviado a ${resp.email}.`};
-  } catch(e) {
-    return {status:'error', message:'No se pudo enviar el correo: ' + e.message};
+
+  let enviados = 0;
+  const errores = [];
+  tipos.forEach(tipo => {
+    try { enviarUnReporteManual_(resp, tipo, esPrueba); enviados++; }
+    catch(e) { errores.push(`${REPORTES_LABEL_[tipo] || tipo}: ${e.message}`); }
+  });
+
+  log(data.usuario, 'Responsable - Envío manual', `${resp.email} · modo: ${modo} · tipos: ${tipos.join(', ')}`);
+
+  if (enviados && !errores.length) return {status:'success', message:`${enviados} correo(s) enviado(s) a ${resp.email} (modo: ${modo}).`};
+  if (enviados && errores.length) return {status:'success', message:`${enviados} correo(s) enviado(s), pero hubo errores en: ${errores.join(' | ')}`};
+  return {status:'error', message:'No se pudo enviar ningún correo: ' + errores.join(' | ')};
+}
+
+// Envía un único correo de un tipo de reporte para un responsable.
+// esPrueba=true usa datos de ejemplo (ficticios); esPrueba=false usa los
+// datos reales actuales del sistema. Lanza una excepción si algo falla,
+// para que enviarReporteResponsableManual la cuente como error sin
+// interrumpir el envío de los demás tipos solicitados.
+function enviarUnReporteManual_(resp, tipo, esPrueba) {
+  const prefijo = esPrueba ? '🧪 PRUEBA — ' : '';
+
+  if (tipo === 'backup_json' || tipo === 'backup_csv') {
+    const esJson = tipo === 'backup_json';
+    const adjunto = esPrueba
+      ? (esJson ? construirBackupJSONPruebaBlob_() : construirBackupCSVPruebaBlob_())
+      : (esJson ? construirBackupJSONBlob_() : construirBackupCSVBlob_());
+    const titulo = prefijo + (esJson ? '📅📊 Copia de seguridad (JSON)' : '📅📊 Copia de seguridad (CSV)');
+    const html = `
+      <div style="font-family:Arial,sans-serif; max-width:480px; margin:0 auto; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+        <div style="background:#091933; color:#fff; padding:14px 20px;"><h2 style="margin:0; font-size:17px;">${titulo}</h2></div>
+        <div style="padding:18px 20px;">
+          <p style="margin:4px 0;">${esPrueba ? 'Este es un envío de PRUEBA con datos ficticios de ejemplo — no corresponde a tu inventario real.' : `Adjunto va la copia de seguridad completa del sistema (${esJson ? 'un solo archivo .json' : 'archivos .csv dentro de un .zip'}), generada el ${new Date().toLocaleString('es-SV')}.`}</p>
+          ${esPrueba ? '' : '<p style="margin:12px 0 0; font-size:11px; color:#9ca3af;">Este archivo se puede volver a subir en "Importar / Exportar Datos" para restaurar la información.</p>'}
+        </div>
+      </div>`;
+    enviarCorreoConAdjunto_(resp.email, titulo, html, adjunto);
+    return;
   }
+
+  if (tipo === 'mensual' || tipo === 'anual') {
+    const hoy = new Date();
+    let fi, ff, tituloBase;
+    if (tipo === 'anual') {
+      fi = new Date(hoy.getFullYear() - 1, 0, 1);
+      ff = new Date(hoy.getFullYear() - 1, 11, 31, 23, 59, 59);
+      tituloBase = `📊 Reporte Anual ${hoy.getFullYear() - 1}`;
+    } else {
+      fi = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+      ff = new Date(hoy.getFullYear(), hoy.getMonth(), 0, 23, 59, 59);
+      tituloBase = `📊 Reporte Mensual — ${fi.toLocaleDateString('es-SV', {month:'long', year:'numeric'})}`;
+    }
+    const titulo = prefijo + tituloBase;
+    const html = esPrueba ? construirHtmlResumenPrueba_(titulo) : construirHtmlResumen_(titulo, fi, ff);
+    enviarCorreo_(resp.email, titulo, html);
+    return;
+  }
+
+  if (tipo === 'ventas_grandes') {
+    const titulo = prefijo + '💰 Aviso de venta grande (vista previa)';
+    const html = esPrueba ? construirHtmlVentaGrandePrueba_(resp) : construirHtmlVentaGrandeReal_(resp);
+    enviarCorreo_(resp.email, titulo, html);
+    return;
+  }
+
+  if (tipo === 'stock_bajo') {
+    const titulo = prefijo + '⚠️ Alerta de stock bajo (vista previa)';
+    const html = esPrueba ? construirHtmlStockBajoPrueba_() : construirHtmlStockBajoReal_();
+    enviarCorreo_(resp.email, titulo, html);
+    return;
+  }
+
+  throw new Error('Tipo de reporte no reconocido: ' + tipo);
+}
+
+// ── Contenido de EJEMPLO (100% ficticio, nunca datos reales del
+// negocio) usado en el modo "prueba" ──
+function construirHtmlResumenPrueba_(titulo) {
+  return `
+    <div style="font-family:Arial,sans-serif; max-width:520px; margin:0 auto;">
+      <div style="background:#091933; color:#fff; padding:16px 20px; border-radius:8px 8px 0 0;">
+        <h2 style="margin:0; font-size:18px;">${titulo}</h2>
+        <p style="margin:4px 0 0; font-size:12px; opacity:0.8;">Datos de ejemplo — no corresponden a tu negocio real.</p>
+      </div>
+      <div style="border:1px solid #e5e7eb; border-top:none; padding:20px; border-radius:0 0 8px 8px;">
+        <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
+          <tr><td style="padding:6px 0; color:#6b7280;">Total en ventas</td><td style="padding:6px 0; text-align:right; font-weight:bold; color:#28a745;">$1,250.00</td></tr>
+          <tr><td style="padding:6px 0; color:#6b7280;">Tickets emitidos</td><td style="padding:6px 0; text-align:right; font-weight:bold;">48</td></tr>
+          <tr><td style="padding:6px 0; color:#6b7280;">Total en compras</td><td style="padding:6px 0; text-align:right; font-weight:bold; color:#dc3545;">$430.00</td></tr>
+        </table>
+        <h3 style="font-size:14px; margin:0 0 8px;">🔥 Top 5 productos más vendidos (ejemplo)</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <tr><td style="padding:4px 8px;">Producto de ejemplo A</td><td style="padding:4px 8px; text-align:right;">32</td></tr>
+          <tr><td style="padding:4px 8px;">Producto de ejemplo B</td><td style="padding:4px 8px; text-align:right;">21</td></tr>
+        </table>
+        <p style="margin-top:20px; font-size:11px; color:#9ca3af;">Este es un envío de PRUEBA generado manualmente desde ERP POS LITE.</p>
+      </div>
+    </div>`;
+}
+
+function construirHtmlVentaGrandePrueba_(resp) {
+  const umbral = parseFloat(resp.umbral_venta_grande) || 100;
+  return `
+    <div style="font-family:Arial,sans-serif; max-width:480px; margin:0 auto; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+      <div style="background:#28a745; color:#fff; padding:14px 20px;"><h2 style="margin:0; font-size:17px;">💰 Venta grande registrada (ejemplo)</h2></div>
+      <div style="padding:18px 20px;">
+        <p style="margin:4px 0;">Cliente: <b>Cliente de ejemplo</b></p>
+        <p style="margin:4px 0;">Productos: <b>5</b></p>
+        <p style="margin:4px 0;">Total: <b style="color:#28a745; font-size:1.2em;">${formatoMoneda_(umbral + 50)}</b></p>
+        <p style="margin:12px 0 0; font-size:11px; color:#9ca3af;">Así se vería un aviso cuando una venta real supere tu umbral configurado de ${formatoMoneda_(umbral)}. Este correo es de PRUEBA.</p>
+      </div>
+    </div>`;
+}
+
+// Vista previa REAL: en vez de una venta ficticia (no hay forma de
+// "forzar" una venta grande real bajo pedido), se listan las ventas
+// reales de los últimos 30 días que sí superaron el umbral configurado.
+function construirHtmlVentaGrandeReal_(resp) {
+  const umbral = parseFloat(resp.umbral_venta_grande) || 100;
+  const ventas = getData(H_VENTAS).data || [];
+  const hace30 = new Date(); hace30.setDate(hace30.getDate() - 30);
+  const grandes = ventas
+    .filter(v => new Date(v.fecha) >= hace30 && (parseFloat(v.total) || parseFloat(v.subtotal) || 0) > umbral)
+    .sort((a,b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 10);
+  const filas = grandes.map(v => `<tr><td style="padding:4px 8px;">${new Date(v.fecha).toLocaleDateString('es-SV')}</td><td style="padding:4px 8px;">${v.cliente_nombre||'N/A'}</td><td style="padding:4px 8px; text-align:right; font-weight:bold;">${formatoMoneda_(v.total||v.subtotal||0)}</td></tr>`).join('');
+  return `
+    <div style="font-family:Arial,sans-serif; max-width:520px; margin:0 auto; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+      <div style="background:#28a745; color:#fff; padding:14px 20px;"><h2 style="margin:0; font-size:17px;">💰 Ventas que superaron tu umbral (últimos 30 días)</h2></div>
+      <div style="padding:18px 20px;">
+        <p style="margin:4px 0 12px; font-size:12px; color:#6b7280;">Umbral configurado: ${formatoMoneda_(umbral)}</p>
+        ${grandes.length ? `<table style="width:100%; border-collapse:collapse; font-size:13px;"><tr><th style="text-align:left; padding:4px 8px;">Fecha</th><th style="text-align:left; padding:4px 8px;">Cliente</th><th style="text-align:right; padding:4px 8px;">Total</th></tr>${filas}</table>` : '<p style="color:#9ca3af;">No hubo ventas que superaran tu umbral en los últimos 30 días.</p>'}
+        <p style="margin-top:14px; font-size:11px; color:#9ca3af;">En el sistema real, este aviso se envía de inmediato apenas se registra una venta que supera tu umbral.</p>
+      </div>
+    </div>`;
+}
+
+function construirHtmlStockBajoPrueba_() {
+  return `
+    <div style="font-family:Arial,sans-serif; max-width:480px; margin:0 auto; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+      <div style="background:#dc3545; color:#fff; padding:14px 20px;"><h2 style="margin:0; font-size:17px;">⚠️ Productos con stock bajo (ejemplo)</h2></div>
+      <div style="padding:18px 20px;">
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <tr><td style="padding:4px 8px;">Producto de ejemplo A</td><td style="padding:4px 8px; text-align:right;">2</td></tr>
+          <tr><td style="padding:4px 8px;">Producto de ejemplo B</td><td style="padding:4px 8px; text-align:right;">0</td></tr>
+        </table>
+        <p style="margin-top:14px; font-size:11px; color:#9ca3af;">Este es un envío de PRUEBA con datos de ejemplo.</p>
+      </div>
+    </div>`;
+}
+
+function construirHtmlStockBajoReal_() {
+  const inv = (getData(H_PRODUCTOS).data || []).filter(p => p.activo === true || p.activo === 'true');
+  const bajos = inv.filter(p => (parseInt(p.stock) || 0) <= (parseInt(p.stock_minimo) || 5));
+  const filas = bajos.map(p => `<tr><td style="padding:4px 8px;">${p.nombre}</td><td style="padding:4px 8px; text-align:right;">${p.stock}</td></tr>`).join('');
+  return `
+    <div style="font-family:Arial,sans-serif; max-width:480px; margin:0 auto; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+      <div style="background:#dc3545; color:#fff; padding:14px 20px;"><h2 style="margin:0; font-size:17px;">⚠️ Productos con stock bajo</h2></div>
+      <div style="padding:18px 20px;">
+        ${bajos.length ? `<table style="width:100%; border-collapse:collapse; font-size:13px;">${filas}</table>` : '<p style="color:#9ca3af;">Actualmente no hay productos con stock bajo. 🎉</p>'}
+        <p style="margin-top:14px; font-size:11px; color:#9ca3af;">Vista previa manual generada desde ERP POS LITE.</p>
+      </div>
+    </div>`;
+}
+
+function construirBackupJSONPruebaBlob_() {
+  const backup = {
+    generado: new Date().toISOString(), sistema: 'ERP POS LITE (PRUEBA)',
+    inventario: [{ nombre:'Producto de ejemplo', codigo:'000000', categoria:'Ejemplo', precio_compra:1, precio_venta:2, stock:10 }],
+    filas: [{ nombre:'Producto de ejemplo', codigo:'000000', categoria:'Ejemplo', precio_compra:1, precio_venta:2, stock:10 }],
+    ventas: [], categorias: [{ nombre:'Ejemplo' }], papelera: []
+  };
+  return Utilities.newBlob(JSON.stringify(backup, null, 2), 'application/json', `Backup_PRUEBA_${new Date().toISOString().slice(0,10)}.json`);
+}
+function construirBackupCSVPruebaBlob_() {
+  const fechaTag = new Date().toISOString().slice(0,10);
+  const blobs = [Utilities.newBlob(
+    filasACSV_(['nombre','codigo','categoria','precio_compra','precio_venta','stock'], [['Producto de ejemplo','000000','Ejemplo',1,2,10]]),
+    'text/csv', 'Inventario_PRUEBA.csv'
+  )];
+  return Utilities.zip(blobs, `Backup_PRUEBA_${fechaTag}.zip`);
 }
 
 // Aviso inmediato de venta grande. Se llama desde registrarVenta().
