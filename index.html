@@ -74,6 +74,22 @@
     .hacienda-tab-btn.active { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
     .danger-btn { background: var(--danger-color); color: white; }
     .danger-btn:hover { background: #c82333; }
+
+    /* ── Búsqueda por voz (POS) ──
+       Botón de micrófono junto al buscador de Ventas. Mientras el
+       navegador está escuchando, se pone rojo y "late" con un anillo
+       expansivo (misma idea que el aviso amarillo de mantenimiento,
+       pero en rojo, para que sea obvio que el sistema está grabando). */
+    @keyframes micEscuchandoPulso {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(220,53,69,0.45); }
+      50%      { box-shadow: 0 0 0 14px rgba(220,53,69,0); }
+    }
+    .mic-btn.mic-escuchando {
+      background: var(--danger-color) !important;
+      color: #fff !important;
+      border-color: var(--danger-color) !important;
+      animation: micEscuchandoPulso 1.1s ease-out infinite;
+    }
     
     .btn-icon { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; border: none; cursor: pointer; }
     .btn-icon.edit { background: var(--primary-light); color: var(--primary-color); }
@@ -950,6 +966,7 @@
             <label>Escanear o Buscar Producto:</label>
             <div style="display:flex; gap:8px;">
               <input type="text" id="v_query" placeholder="Escribe código o nombre..." autocomplete="off" style="flex:1;">
+              <button class="btn secondary-btn mic-btn" id="btnBusquedaVoz" onclick="toggleBusquedaPorVoz()" title="Buscar por voz (di 'código ...' o 'nombre ...')" style="min-width:48px; padding:0;"><i class="fas fa-microphone" style="font-size:1.2rem;"></i></button>
               <button class="btn secondary-btn" onclick="activarCamaraEscaneo('v')" style="min-width:48px; padding:0;"><i class="fas fa-camera" style="font-size:1.2rem;"></i></button>
             </div>
             <div id="v_sugerencias" style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius); max-height:180px; overflow-y:auto; margin-top:4px;" class="hidden"></div>
@@ -3612,6 +3629,181 @@
   function procesarLecturaCodigoBarrasPOS(codigo) {
     const coincidencias = inventarioGlobal.filter(p => codigosCoinciden(p['código'], codigo));
     resolverCoincidenciasCodigoCarrito(codigo, coincidencias);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // ── BÚSQUEDA POR VOZ (atajo "manos libres" del buscador de Ventas) ──
+  // Usa la Web Speech API nativa del navegador (SpeechRecognition /
+  // webkitSpeechRecognition). No requiere ninguna librería externa,
+  // pero solo funciona en navegadores compatibles (Chrome, Edge,
+  // Android). El cajero dice "código ..." o "nombre ..." y el
+  // sistema reutiliza EXACTAMENTE la misma lógica que ya existe para
+  // el buscador manual y el lector USB, así que no duplica reglas de
+  // negocio: solo traduce voz → texto → el mismo flujo de siempre.
+  // ══════════════════════════════════════════════════════════════
+  let vozReconocimiento = null;   // instancia de SpeechRecognition (se crea una sola vez y se reutiliza)
+  let vozEscuchando = false;      // true mientras el micrófono está grabando
+
+  // Crea (la primera vez) o reutiliza la instancia de reconocimiento
+  // de voz, con sus manejadores de eventos ya enganchados. Devuelve
+  // null si el navegador no soporta la Web Speech API.
+  function obtenerReconocimientoVoz() {
+    if (vozReconocimiento) return vozReconocimiento;
+
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognitionAPI) return null;
+
+    vozReconocimiento = new SpeechRecognitionAPI();
+    vozReconocimiento.lang = 'es-419';       // español latinoamericano (el más compatible en Chrome)
+    vozReconocimiento.continuous = false;    // una sola frase por clic, no queda grabando indefinidamente
+    vozReconocimiento.interimResults = false; // solo nos interesa el resultado final, ya transcrito
+    vozReconocimiento.maxAlternatives = 1;
+
+    vozReconocimiento.onstart = () => marcarEstadoMicVoz(true);
+    // onend se dispara SIEMPRE que termina de escuchar (con o sin resultado,
+    // cancelado a mano, o por silencio), así que aquí es donde el botón
+    // "se apaga" solo, esperando a que lo vuelvan a presionar.
+    vozReconocimiento.onend = () => marcarEstadoMicVoz(false);
+
+    vozReconocimiento.onerror = (ev) => {
+      marcarEstadoMicVoz(false);
+      if (ev.error === 'no-speech') {
+        showToast('No se detectó ninguna voz. Intenta de nuevo.', 'warning');
+      } else if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+        showToast('Permiso de micrófono denegado. Actívalo en la configuración del navegador (candado junto a la URL) e intenta de nuevo.', 'error');
+      } else if (ev.error === 'aborted') {
+        // el propio usuario canceló haciendo clic de nuevo: no hace falta avisar nada
+      } else {
+        showToast('Error del reconocimiento de voz: ' + ev.error, 'error');
+      }
+    };
+
+    vozReconocimiento.onresult = (ev) => {
+      const transcript = ev.results[0][0].transcript;
+      procesarComandoVoz(transcript);
+    };
+
+    return vozReconocimiento;
+  }
+
+  // Cambia el ícono/color del botón del micrófono según si está
+  // escuchando o no (el "parpadeo" visual pedido).
+  function marcarEstadoMicVoz(activo) {
+    vozEscuchando = activo;
+    const btn = document.getElementById('btnBusquedaVoz');
+    if (!btn) return;
+    btn.classList.toggle('mic-escuchando', activo);
+    btn.title = activo
+      ? 'Escuchando… vuelve a tocar para cancelar'
+      : "Buscar por voz (di 'código ...' o 'nombre ...')";
+  }
+
+  // Botón del micrófono: un clic empieza a escuchar, otro clic
+  // mientras escucha, cancela.
+  function toggleBusquedaPorVoz() {
+    const r = obtenerReconocimientoVoz();
+    if (!r) {
+      showToast('Este navegador no soporta búsqueda por voz. Usa Chrome (computadora o Android).', 'error');
+      return;
+    }
+    if (vozEscuchando) { r.stop(); return; }
+    try { r.start(); } catch (e) { /* ya estaba iniciado; se ignora */ }
+  }
+
+  // Quita acentos para comparar palabras sin importar cómo las haya
+  // transcrito el navegador (p. ej. "codigo" vs "código").
+  function quitarAcentosVoz(str) {
+    return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
+
+  // Diccionario mínimo de números en palabras → dígitos, en español.
+  // No pretende ser un traductor de números completo (no cubre miles
+  // ni casos raros), pero cubre lo que un cajero diría al leer un
+  // código de barras: dígito por dígito ("siete ocho nueve" → "789")
+  // o números compuestos ("setenta y ocho" → "78").
+  const VOZ_UNIDADES = { cero:'0', uno:'1', un:'1', una:'1', dos:'2', tres:'3', cuatro:'4', cinco:'5', seis:'6', siete:'7', ocho:'8', nueve:'9' };
+  const VOZ_DIEZ_A_VEINTINUEVE = {
+    diez:'10', once:'11', doce:'12', trece:'13', catorce:'14', quince:'15',
+    dieciseis:'16', diecisiete:'17', dieciocho:'18', diecinueve:'19',
+    veinte:'20', veintiuno:'21', veintidos:'22', veintitres:'23', veinticuatro:'24',
+    veinticinco:'25', veintiseis:'26', veintisiete:'27', veintiocho:'28', veintinueve:'29'
+  };
+  const VOZ_DECENAS = { treinta:'30', cuarenta:'40', cincuenta:'50', sesenta:'60', setenta:'70', ochenta:'80', noventa:'90' };
+  const VOZ_CIENTOS = { cien:'100', ciento:'100', doscientos:'200', trescientos:'300', cuatrocientos:'400', quinientos:'500', seiscientos:'600', setecientos:'700', ochocientos:'800', novecientos:'900' };
+
+  // Convierte una frase con números dichos con palabras (o ya en
+  // dígitos, o mezclados) a una cadena de solo dígitos. Ej:
+  //   "siete ocho nueve"      → "789"  (dígito por dígito → se pegan)
+  //   "setenta y ocho"        → "78"   (número compuesto → un solo bloque)
+  //   "código setenta y ocho nueve" (sin la palabra "código") → "789" + "78"... etc.
+  function palabrasANumerosVoz(frase) {
+    const tokens = quitarAcentosVoz(frase).split(/\s+/).filter(Boolean);
+    const partesNumero = [];
+    let i = 0;
+    while (i < tokens.length) {
+      const tok = tokens[i];
+
+      // El navegador ya transcribió esto como dígitos (pasa seguido
+      // con números cortos, según cómo los pronuncies).
+      if (/^\d+$/.test(tok)) { partesNumero.push(tok); i++; continue; }
+
+      // Número compuesto tipo "setenta y ocho" → bloque único "78"
+      if (VOZ_DECENAS[tok] && tokens[i + 1] === 'y' && VOZ_UNIDADES[tokens[i + 2]]) {
+        partesNumero.push(String(parseInt(VOZ_DECENAS[tok], 10) + parseInt(VOZ_UNIDADES[tokens[i + 2]], 10)));
+        i += 3; continue;
+      }
+      if (VOZ_CIENTOS[tok]) { partesNumero.push(VOZ_CIENTOS[tok]); i++; continue; }
+      if (VOZ_DECENAS[tok]) { partesNumero.push(VOZ_DECENAS[tok]); i++; continue; }
+      if (VOZ_DIEZ_A_VEINTINUEVE[tok]) { partesNumero.push(VOZ_DIEZ_A_VEINTINUEVE[tok]); i++; continue; }
+      if (VOZ_UNIDADES[tok]) { partesNumero.push(VOZ_UNIDADES[tok]); i++; continue; }
+
+      // Palabra de relleno ("el", "código", conectores, etc.): se ignora.
+      i++;
+    }
+    return partesNumero.join('');
+  }
+
+  // Punto de entrada: recibe el texto ya transcrito por el navegador
+  // y decide si es un comando de "código" o de "nombre" (ver
+  // condiciones en el comentario de arriba de este bloque).
+  function procesarComandoVoz(transcript) {
+    const texto = transcript.toLowerCase().trim().replace(/[.,;!?]/g, '');
+    if (!texto) { showToast('No se entendió nada. Intenta de nuevo.', 'warning'); return; }
+
+    const partes = texto.split(/\s+/);
+    const comando = quitarAcentosVoz(partes[0]);
+    const resto = partes.slice(1).join(' ').trim();
+
+    if (comando === 'codigo') {
+      if (!resto) { showToast('Di el código después de la palabra "código". Ej: "código siete ocho nueve".', 'warning'); return; }
+      const codigoDigitos = palabrasANumerosVoz(resto);
+      if (!codigoDigitos) { showToast(`No se reconoció ningún número en "${resto}".`, 'warning'); return; }
+
+      // Igual que el lector USB: se refleja en el campo visible, suena
+      // el bip, y se dispara la MISMA función que usa la pistola/el
+      // buscador manual, para no duplicar reglas de negocio.
+      document.getElementById('v_query').value = codigoDigitos;
+      playBeep();
+      procesarLecturaCodigoBarrasPOS(codigoDigitos);
+      document.getElementById('v_query').value = '';
+      document.getElementById('v_sugerencias').classList.add('hidden');
+
+    } else if (comando === 'nombre') {
+      if (!resto) { showToast('Di el nombre después de la palabra "nombre". Ej: "nombre coca cola".', 'warning'); return; }
+
+      // Se inyecta el texto en el buscador y se dispara el evento
+      // 'input' para reutilizar tal cual el listener de búsqueda por
+      // nombre que ya existe (despliega #v_sugerencias con los
+      // resultados, igual que si el cajero lo hubiera tecleado).
+      const campo = document.getElementById('v_query');
+      campo.value = resto;
+      campo.dispatchEvent(new Event('input'));
+      playBeep();
+      showToast(`Comando de voz: buscando "${resto}".`, 'success');
+
+    } else {
+      showToast('Comando de voz no reconocido. Empieza diciendo "código" o "nombre".', 'error');
+    }
   }
 
   // ── Código repetido en el carrito ──
