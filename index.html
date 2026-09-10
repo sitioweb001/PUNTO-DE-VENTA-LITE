@@ -1652,17 +1652,31 @@
   // silencioso contra el propio servidor cada 20s. navigator.onLine solo
   // sabe si hay una interfaz de red activa, pero NO si esa red tiene
   // salida real a internet (por ejemplo, wifi conectado pero sin datos).
+  //
+  // Apps Script puede tardar varios segundos en "despertar" (cold start),
+  // así que un solo fallo por lentitud NO significa que no haya internet.
+  // Por eso: (1) el timeout es más generoso (15s en vez de 6s), y (2) se
+  // exigen 2 fallos CONSECUTIVOS antes de marcar "sin conexión" — un solo
+  // fallo puntual se ignora y se reintenta en el próximo ciclo. Cualquier
+  // sondeo exitoso reinicia el contador de fallos a cero.
+  let fallosConexionSeguidos = 0;
+  const FALLOS_CONEXION_REQUERIDOS = 2;
+
   async function verificarConexionReal() {
     if (!modoOfflineActivo) return;
     if (!document.getElementById('mainApp') || document.getElementById('mainApp').classList.contains('hidden')) return;
     try {
       const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 6000);
+      const t = setTimeout(() => ctrl.abort(), 15000);
       await fetch(`${SCRIPT_URL}?action=getEstado&_=${Date.now()}`, { method:'GET', cache:'no-store', signal: ctrl.signal, mode:'no-cors' });
       clearTimeout(t);
+      fallosConexionSeguidos = 0;
       if (navigator.onLine) marcarConConexion();
     } catch(e) {
-      marcarSinConexion();
+      fallosConexionSeguidos++;
+      if (fallosConexionSeguidos >= FALLOS_CONEXION_REQUERIDOS) {
+        marcarSinConexion();
+      }
     }
   }
 
